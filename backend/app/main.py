@@ -1,11 +1,14 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import Host, Scan, ScanCreateRequest
+from app.models import Host, Port, Scan, ScanCreateRequest
 from app.scanner.discovery import run_discovery
+from app.scanner.portscan import run_portscan
 from app.scope import validate_cidr
 
 
@@ -19,17 +22,32 @@ app.add_middleware(
 )
 
 scans: dict[UUID, Scan] = {}
+portscan_semaphore = asyncio.Semaphore(5)
+logger = logging.getLogger(__name__)
 
 
-def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
+async def scan_host(host: Host) -> None:
+    async with portscan_semaphore:
+        host.status = 'scanning'
+        try:
+            result = await asyncio.to_thread(run_portscan, host.ip)
+            host.ports = [Port(**port) for port in result['ports']]
+        except Exception:
+            logger.exception('Port scan failed for host %s', host.ip)
+        finally:
+            host.status = 'done'
+
+
+async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
     scan = scans[scan_id]
     try:
-        discovered_hosts = run_discovery(cidr)
+        discovered_hosts = await asyncio.to_thread(run_discovery, cidr)
         scan.hosts = [
             Host(ip=host['ip'], hostname=host['hostname'])
             for host in discovered_hosts
         ]
         scan.status = 'completed'
+        await asyncio.gather(*(scan_host(host) for host in scan.hosts))
     except Exception as exc:
         scan.status = 'failed'
         scan.error = str(exc)

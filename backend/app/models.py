@@ -6,10 +6,19 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class Port(BaseModel):
+    port: int
+    protocol: str
+    service: str
+    product: str | None = None
+    version: str | None = None
+
+
 class Host(BaseModel):
     ip: str
     hostname: str | None = None
     status: Literal['pending', 'scanning', 'done'] = 'pending'
+    ports: list[Port] = Field(default_factory=list)
 
 
 class Scan(BaseModel):
