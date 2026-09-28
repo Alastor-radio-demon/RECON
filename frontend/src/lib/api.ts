@@ -1,15 +1,28 @@
-import { HOSTS, HISTORY } from '../data/demo';
+export type ScanStatus = 'pending' | 'discovering' | 'completed' | 'failed';
+export type HostStatus = 'pending' | 'scanning' | 'done';
+
+export interface Port {
+  port: number;
+  protocol: string;
+  service: string;
+  product: string | null;
+  version: string | null;
+}
+
+export interface Host {
+  ip: string;
+  hostname: string | null;
+  status: HostStatus;
+  ports: Port[];
+}
 
 export interface Scan {
   id: string;
   cidr: string;
-  status: string;
+  status: ScanStatus;
   created_at: string;
-}
-
-export interface AppData {
-  hosts: typeof HOSTS;
-  history: typeof HISTORY;
+  hosts: Host[];
+  error: string | null;
 }
 
 declare global {
@@ -66,7 +79,3 @@ export async function getScan(id: string): Promise<Scan> {
   return response.json() as Promise<Scan>;
 }
 
-export const getDemoData = (): AppData => ({
-  hosts: HOSTS,
-  history: HISTORY,
-});

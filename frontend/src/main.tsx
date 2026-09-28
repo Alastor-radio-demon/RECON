@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import './styles/recon.css';
-import { HOSTS, HISTORY, grade, GC, SEV, SEVC, esc, type Host } from './data/demo';
-import { createScan, getScan, getDemoData, type AppData } from './lib/api';
+import { HOSTS, HISTORY, grade, GC, SEV, SEVC, type Finding } from './data/demo';
+import { createScan, getScan, type Scan } from './lib/api';
 
 const NAV = [
   ['scan', 'Scan'],
@@ -21,8 +21,10 @@ const AppStateContext = React.createContext<{
   setPreset: (value: 'quick' | 'full') => void;
   auth: boolean;
   setAuth: (value: boolean) => void;
-  host: number | null;
-  setHost: (value: number | null) => void;
+  host: string | null;
+  setHost: (value: string | null) => void;
+  scan: Scan | null;
+  setScan: (value: Scan | null) => void;
   sortKey: 'ip' | 'os' | 'ports' | 'vulns' | 'score';
   setSortKey: (value: 'ip' | 'os' | 'ports' | 'vulns' | 'score') => void;
   sortDir: 1 | -1;
@@ -42,7 +44,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [cidr, setCidr] = React.useState('192.168.1.0/24');
   const [preset, setPreset] = React.useState<'quick' | 'full'>('quick');
   const [auth, setAuth] = React.useState(true);
-  const [host, setHost] = React.useState<number | null>(null);
+  const [host, setHost] = React.useState<string | null>(null);
+  const [scan, setScan] = React.useState<Scan | null>(null);
   const [sortKey, setSortKey] = React.useState<'ip' | 'os' | 'ports' | 'vulns' | 'score'>('score');
   const [sortDir, setSortDir] = React.useState<1 | -1>(1);
   const [filter, setFilter] = React.useState('');
@@ -51,8 +54,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [timer, setTimer] = React.useState<number | null>(null);
 
   const value = React.useMemo(
-    () => ({ loaded, setLoaded, cidr, setCidr, preset, setPreset, auth, setAuth, host, setHost, sortKey, setSortKey, sortDir, setSortDir, filter, setFilter, gradeFilter, setGradeFilter, scanning, setScanning, timer, setTimer }),
-    [loaded, cidr, preset, auth, host, sortKey, sortDir, filter, gradeFilter, scanning, timer],
+    () => ({ loaded, setLoaded, cidr, setCidr, preset, setPreset, auth, setAuth, host, setHost, scan, setScan, sortKey, setSortKey, sortDir, setSortDir, filter, setFilter, gradeFilter, setGradeFilter, scanning, setScanning, timer, setTimer }),
+    [loaded, cidr, preset, auth, host, scan, sortKey, sortDir, filter, gradeFilter, scanning, timer],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -64,6 +67,58 @@ function useAppState() {
     throw new Error('AppStateContext is missing');
   }
   return context;
+}
+
+interface DisplayPort {
+  port: number;
+  protocol: string;
+  service: string;
+  product: string | null;
+  version: string | null;
+}
+
+interface DisplayHost {
+  key: string;
+  ip: string;
+  hostname: string | null;
+  status: 'pending' | 'scanning' | 'done';
+  os: string | null;
+  score: number | null;
+  ports: DisplayPort[];
+  vulns: Finding[] | null;
+}
+
+function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
+  if (scan) {
+    return scan.hosts.map((host) => ({
+      key: host.ip,
+      ip: host.ip,
+      hostname: host.hostname,
+      status: host.status,
+      os: null,
+      score: null,
+      ports: host.ports,
+      vulns: null,
+    }));
+  }
+
+  const base = cidr.split('/')[0].split('.').slice(0, 3).join('.');
+  return HOSTS.map((host) => ({
+    key: String(host.n),
+    ip: `${base}.${host.n}`,
+    hostname: host.name,
+    status: 'done',
+    os: host.os,
+    score: host.score,
+    ports: host.ports.map((port) => ({
+      port: port.port,
+      protocol: port.proto,
+      service: port.service,
+      product: port.product,
+      version: null,
+    })),
+    vulns: host.vulns,
+  }));
 }
 
 function AppLayout() {
@@ -103,13 +158,8 @@ function AppLayout() {
     return 'scan';
   }, [location.pathname]);
 
-  const go = React.useCallback((view: string, hostId?: number | null) => {
-    if (state.timer) {
-      window.clearInterval(state.timer);
-      state.setScanning(false);
-      state.setTimer(null);
-    }
-    if (hostId !== undefined) state.setHost(hostId ?? null);
+  const go = React.useCallback((view: string, hostId?: string | number | null) => {
+    if (hostId !== undefined) state.setHost(hostId == null ? null : String(hostId));
     if (view === 'scan') navigate('/');
     else if (view === 'overview') navigate('/overview');
     else if (view === 'hosts') navigate('/hosts');
@@ -118,7 +168,8 @@ function AppLayout() {
 
   const nav = NAV.map(([key, label]) => {
     const selected = currentView === key || (currentView === 'hosts' && key === 'hosts');
-    const badge = key === 'hosts' && state.loaded ? <span className="pill">{HOSTS.length}</span> : null;
+    const hostCount = state.scan ? state.scan.hosts.length : HOSTS.length;
+    const badge = key === 'hosts' && state.loaded ? <span className="pill">{hostCount}</span> : null;
     return (
       <button key={key} data-go={key} aria-current={selected ? 'page' : undefined} onClick={() => go(key)}>
         {label}
@@ -148,7 +199,7 @@ function AppLayout() {
         </div>
         <nav id="nav" aria-label="Main">{nav}</nav>
         <div className="side-foot">
-          <span className="pill">Demo data</span>
+          <span className="pill">{state.scan ? 'Live scan' : 'Demo data'}</span>
           <p style={{ margin: '10px 0 0' }}>Scan only networks you own or are authorized to test.</p>
         </div>
       </aside>
@@ -222,7 +273,7 @@ function EmptyState() {
       <p>Scan a network to see live hosts, open services, and known vulnerabilities here.</p>
       <div className="actions" style={{ justifyContent: 'center' }}>
         <button className="btn" onClick={() => navigate('/')}>Start a scan</button>
-        <button className="btn ghost" onClick={() => { state.setLoaded(true); navigate('/overview'); }}>Load demo results</button>
+        <button className="btn ghost" onClick={() => { state.setScan(null); state.setLoaded(true); navigate('/overview'); }}>Load demo results</button>
       </div>
     </div>
   );
@@ -237,59 +288,7 @@ function ScanPage() {
   const [found, setFound] = React.useState(0);
   const [blips, setBlips] = React.useState<Array<{ cx: number; cy: number; color: string }>>([]);
   const activeScanId = React.useRef<string | null>(null);
-
-  const runSim = React.useCallback(() => {
-    const steps = [
-      [4, 'Scope check passed: /24, lab mode on'],
-      [12, 'Host discovery started (ping and ARP)'],
-      [42, 'Discovery finished: 14 hosts up of 254'],
-      [48, 'Port sweep started (top ' + (state.preset === 'quick' ? 100 : 1000) + ' ports)'],
-      [70, 'Service and version detection done'],
-      [84, 'CVE, known-exploited, and EPSS lookups done'],
-      [95, 'Risk scoring done'],
-    ] as const;
-
-    let p = 0;
-    let shown = 0;
-    let nextFound = 0;
-    const blipArr: Array<{ cx: number; cy: number; color: string }> = [];
-
-    setError('');
-    state.setScanning(true);
-    state.setLoaded(false);
-
-    const timer = window.setInterval(() => {
-      p += 2;
-      while (shown < steps.length && p >= steps[shown][0]) {
-        setLog(prev => [...prev, steps[shown][1]]);
-        shown += 1;
-      }
-      const target = p < 12 ? 0 : Math.min(HOSTS.length, Math.round(((p - 12) / 30) * HOSTS.length));
-      while (nextFound < target) {
-        const host = HOSTS[nextFound];
-        const angle = (host.n * 47) % 360 * Math.PI / 180;
-        const radius = 30 + ((host.n * 13) % 100);
-        blipArr.push({
-          cx: 150 + radius * Math.sin(angle),
-          cy: 150 - radius * Math.cos(angle),
-          color: GC[grade(host.score)],
-        });
-        nextFound += 1;
-      }
-      setFound(nextFound);
-      setProgress(p);
-      setBlips([...blipArr]);
-
-      if (p >= 100) {
-        window.clearInterval(timer);
-        state.setScanning(false);
-        state.setLoaded(true);
-        setTimeout(() => navigate('/overview'), 700);
-      }
-    }, 200);
-
-    state.setTimer(timer);
-  }, [navigate, state]);
+  const pollTimer = React.useRef<number | null>(null);
 
   const handleStart = async () => {
     const value = (document.getElementById('cidr') as HTMLInputElement | null)?.value.trim() ?? '';
@@ -313,20 +312,82 @@ function ScanPage() {
       return;
     }
     state.setCidr(value);
+    state.setScan(null);
     setError('');
+    setProgress(0);
+    setFound(0);
+    setBlips([]);
+    setLog(['Starting host discovery...']);
     state.setScanning(true);
     state.setLoaded(false);
 
     try {
       const scan = await createScan(value, state.auth);
       activeScanId.current = scan.id;
-      state.setTimer(window.setInterval(() => {
+      state.setScan(scan);
+      state.setCidr(scan.cidr);
+
+      let pollInFlight = false;
+      const stopPolling = () => {
+        if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
+        pollTimer.current = null;
+        activeScanId.current = null;
+        state.setTimer(null);
+        state.setScanning(false);
+      };
+      const poll = async () => {
         const scanId = activeScanId.current;
-        if (!scanId) return;
-        void getScan(scanId)
-          .then((updatedScan) => console.info(`Scan ${updatedScan.id} status: ${updatedScan.status}`))
-          .catch((pollError: unknown) => console.error('Failed to poll scan status:', pollError));
-      }, 2000));
+        if (!scanId || pollInFlight) return;
+        pollInFlight = true;
+        try {
+          const updatedScan = await getScan(scanId);
+          state.setScan(updatedScan);
+          setError('');
+          setFound(updatedScan.hosts.length);
+
+          const total = updatedScan.hosts.length;
+          const done = updatedScan.hosts.filter((host) => host.status === 'done').length;
+          const isComplete = updatedScan.status === 'completed';
+          setProgress(total ? Math.round((done / total) * 100) : isComplete ? 100 : 0);
+          setBlips(updatedScan.hosts.map((host, index) => {
+            const addressPart = Number(host.ip.split('.').slice(-1)[0]);
+            const seed = Number.isFinite(addressPart) ? addressPart : index + 1;
+            const angle = (seed * 47) % 360 * Math.PI / 180;
+            const radius = 30 + ((seed * 13) % 100);
+            return {
+              cx: 150 + radius * Math.sin(angle),
+              cy: 150 - radius * Math.cos(angle),
+              color: 'var(--accent)',
+            };
+          }));
+          setLog((previous) => {
+            if (!total) {
+              return isComplete ? ['Discovery completed: no live hosts found.'] : ['Waiting for host discovery...'];
+            }
+            const discoveryLine = `Discovery found ${total} live hosts.`;
+            const next = previous.includes(discoveryLine) ? previous : [...previous, discoveryLine];
+            return [...next.filter((line) => !line.startsWith('Port scans complete:')), `Port scans complete: ${done}/${total}`];
+          });
+
+          if (updatedScan.status === 'failed') {
+            setError(updatedScan.error || 'Scan failed.');
+            state.setLoaded(true);
+            stopPolling();
+          } else if (isComplete) {
+            state.setLoaded(true);
+            stopPolling();
+            navigate('/overview');
+          }
+        } catch (pollError) {
+          setError(pollError instanceof Error ? pollError.message : 'Failed to retrieve scan status.');
+        } finally {
+          pollInFlight = false;
+        }
+      };
+
+      pollTimer.current = window.setInterval(() => void poll(), 2000);
+      state.setTimer(pollTimer.current);
+      void poll();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Request failed');
       state.setScanning(false);
@@ -336,7 +397,7 @@ function ScanPage() {
   return (
     <>
       <h1>New scan</h1>
-      <p className="sub">Enter a network range. RECON finds live hosts, checks their services, and grades what it finds.</p>
+      <p className="sub">Enter a network range. RECON finds live hosts and checks their open services.</p>
       <div className="row cols-scan">
         <div className="panel">
           <label className="f" htmlFor="cidr">Network range (CIDR)</label>
@@ -361,10 +422,10 @@ function ScanPage() {
             <input type="checkbox" checked={state.auth} onChange={(e) => state.setAuth(e.target.checked)} />
             <span>I own this network or have written permission to scan it.</span>
           </label>
-          <p className="err" role="alert">{error}</p>
+          <p className="err" role="alert">{error || (state.scan?.status === 'failed' ? state.scan.error : '')}</p>
           <div className="actions">
             <button className="btn" onClick={handleStart} disabled={state.scanning}>Start scan</button>
-            <button className="btn ghost" onClick={() => { state.setLoaded(true); navigate('/overview'); }}>Skip and load demo results</button>
+            <button className="btn ghost" onClick={() => { state.setScan(null); state.setLoaded(true); navigate('/overview'); }}>Skip and load demo results</button>
           </div>
         </div>
         <div className="panel">
@@ -392,11 +453,18 @@ function ScanPage() {
             </g>
             <circle cx="150" cy="150" r="3.5" fill="var(--accent)" />
           </svg>
-          <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-            <i style={{ display: 'block', height: '100%', width: `${progress}%`, background: 'var(--accent)', transition: 'width .2s linear' }} />
+          <div
+            className="bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={state.scan?.status === 'discovering' && !state.scan.hosts.length ? undefined : progress}
+            aria-valuetext={state.scan?.status === 'discovering' && !state.scan.hosts.length ? 'Starting host discovery' : `${progress}%`}
+          >
+            <i style={{ display: 'block', height: '100%', width: `${state.scan?.status === 'discovering' && !state.scan.hosts.length ? 18 : progress}%`, background: 'var(--accent)', transition: 'width .2s linear' }} />
           </div>
           <div className="stats">
-            <span>{progress < 12 ? 'Checking scope' : progress < 45 ? 'Finding hosts' : progress < 72 ? 'Scanning ports' : progress < 100 ? 'Analyzing findings' : 'Done'}</span>
+            <span>{!state.scan ? 'Ready to scan' : state.scan.status === 'failed' ? 'Scan failed' : state.scan.status === 'completed' ? 'Done' : state.scan.status === 'discovering' && !state.scan.hosts.length ? 'Starting discovery' : state.scan.status === 'discovering' ? 'Scanning hosts' : 'Scanning ports'}</span>
             <span>{found} hosts found</span>
           </div>
           <ul className="log" aria-live="polite">
@@ -414,14 +482,18 @@ function OverviewPage() {
   const navigate = useNavigate();
   const state = useAppState();
   const base = state.cidr.split('.').slice(0, 3).join('.');
+  const hosts = getDisplayHosts(state.scan, state.cidr);
+  const isRealScan = state.scan !== null;
   const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-  const hostData = HOSTS.flatMap((h) => h.vulns.map((v) => ({ ...v, host: h })));
-  hostData.forEach((v) => { sevCounts[v.sev] += 1; });
-  const ports = HOSTS.reduce((total, host) => total + host.ports.length, 0);
-  const avg = Math.round(HOSTS.reduce((sum, host) => sum + host.score, 0) / HOSTS.length);
-  const rank = grade(avg);
-  const totalFindings = hostData.length || 1;
-  const kev = hostData.filter((v) => v.kev).length;
+  const hostData = isRealScan ? null : HOSTS.flatMap((host) => host.vulns.map((finding) => ({ ...finding, host })));
+  hostData?.forEach((finding) => { sevCounts[finding.sev] += 1; });
+  const ports = hosts.reduce((total, host) => total + host.ports.length, 0);
+  const avg = isRealScan || !hosts.length
+    ? null
+    : Math.round(hosts.reduce((sum, host) => sum + (host.score ?? 0), 0) / hosts.length);
+  const rank = avg === null ? null : grade(avg);
+  const totalFindings = hostData?.length || 1;
+  const kev = hostData?.filter((finding) => finding.kev).length ?? 0;
   const C = 2 * Math.PI * 42;
   let offset = 0;
   const circles = SEV.map((level) => {
@@ -432,27 +504,27 @@ function OverviewPage() {
   });
 
   const serviceMap: Record<string, number> = {};
-  HOSTS.forEach((host) => {
+  hosts.forEach((host) => {
     host.ports.forEach((p) => {
       serviceMap[p.service] = (serviceMap[p.service] || 0) + 1;
     });
   });
   const topServices = Object.entries(serviceMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxService = topServices[0]?.[1] ?? 1;
-  const worst = [...HOSTS].sort((a, b) => a.score - b.score).slice(0, 5);
+  const worst = isRealScan ? [] : [...hosts].sort((a, b) => (a.score ?? 0) - (b.score ?? 0)).slice(0, 5);
 
   const cells = Array.from({ length: 256 }, (_, index) => {
-    const host = HOSTS.find((item) => item.n === index);
+    const host = hosts.find((item) => Number(item.ip.split('.').slice(-1)[0]) === index);
     if (host) {
-      const gradeValue = grade(host.score);
+      const gradeValue = host.score === null ? null : grade(host.score);
       return (
         <button
           key={`cell-${index}`}
           className="live"
-          style={{ background: GC[gradeValue] }}
-          title={`${base}.${index} ${host.name} · grade ${gradeValue}`}
-          aria-label={`${base}.${index} ${host.name}, grade ${gradeValue}`}
-          onClick={() => { state.setHost(host.n); navigate('/hosts/' + host.n); }}
+          style={gradeValue ? { background: GC[gradeValue] } : { background: 'var(--accent)' }}
+          title={`${host.ip} ${host.hostname ?? ''}${gradeValue ? ` · grade ${gradeValue}` : ` · ${host.status}`}`}
+          aria-label={`${host.ip}${host.hostname ? ` ${host.hostname}` : ''}${gradeValue ? `, grade ${gradeValue}` : `, ${host.status}`}`}
+          onClick={() => { state.setHost(host.key); navigate('/hosts/' + encodeURIComponent(host.key)); }}
         />
       );
     }
@@ -462,18 +534,18 @@ function OverviewPage() {
   return (
     <>
       <h1>Network overview</h1>
-      <p className="sub">{state.cidr} · scanned today at 09:12. Select a square or a host to see its details.</p>
-      <div className="demo">Showing demo data. Nothing here came from a real scan.</div>
+      <p className="sub">{state.cidr}{state.scan ? ` · scanned ${new Date(state.scan.created_at).toLocaleString()}` : ''}. Select a square or a host to see its details.</p>
+      <div className="demo">{isRealScan ? 'Real scan results. Risk analysis is not yet available.' : 'Showing demo data. Nothing here came from a real scan.'}</div>
       <div className="top">
         <div>
-          <span className={`grade g-${rank}`} aria-label={`Network grade ${rank}`}>{rank}</span>
+          <span className={rank ? `grade g-${rank}` : 'grade'} aria-label={rank ? `Network grade ${rank}` : 'Grade not yet analyzed'}>{rank ?? '—'}</span>
           <div>
-            <div className="num">{avg}<span className="lbl">/100</span></div>
-            <div className="lbl">Network score</div>
+            <div className="num">{avg ?? '—'}{avg !== null && <span className="lbl">/100</span>}</div>
+            <div className="lbl">{avg === null ? 'Not yet analyzed' : 'Network score'}</div>
           </div>
         </div>
         <div>
-          <div className="num">{HOSTS.length}</div>
+          <div className="num">{hosts.length}</div>
           <div className="lbl">Live hosts</div>
         </div>
         <div>
@@ -481,11 +553,11 @@ function OverviewPage() {
           <div className="lbl">Open ports</div>
         </div>
         <div>
-          <div className="num">{hostData.length}</div>
+          <div className="num">{hostData?.length ?? '—'}</div>
           <div className="lbl">Findings</div>
         </div>
         <div>
-          <div className="num" style={{ color: 'var(--crit)' }}>{kev}</div>
+          <div className="num" style={{ color: 'var(--crit)' }}>{hostData === null ? '—' : kev}</div>
           <div className="lbl">Known exploited</div>
         </div>
       </div>
@@ -494,45 +566,58 @@ function OverviewPage() {
           <h2>Subnet map</h2>
           <div className="grid16">{cells}</div>
           <div className="legend">
-            {(['A', 'B', 'C', 'D', 'F'] as const).map((label) => (
+            {!isRealScan && (['A', 'B', 'C', 'D', 'F'] as const).map((label) => (
               <span key={label}><i style={{ background: GC[label] }} />Grade {label}</span>
             ))}
+            {isRealScan && <span><i style={{ background: 'var(--accent)' }} />Live host</span>}
             <span><i style={{ background: 'var(--cell)' }} />No response</span>
           </div>
           <div className="hint">Each square is one address, .0 to .255, left to right, top to bottom.</div>
         </div>
         <div className="panel">
-          <h2>Riskiest hosts</h2>
+          <h2>{isRealScan ? 'Discovered hosts' : 'Riskiest hosts'}</h2>
           <ul className="worst">
-            {worst.map((host) => (
-              <li key={host.n}>
-                <button onClick={() => { state.setHost(host.n); navigate('/hosts/' + host.n); }}>
-                  {G(grade(host.score))}
+            {isRealScan ? hosts.slice(0, 5).map((host) => (
+              <li key={host.key}>
+                <button onClick={() => { state.setHost(host.key); navigate('/hosts/' + encodeURIComponent(host.key)); }}>
                   <span className="nm">
-                    <span className="mono">{base}.{host.n}</span>
-                    <small>{host.name} · {host.vulns.length} findings</small>
+                    <span className="mono">{host.ip}</span>
+                    <small>{host.hostname ?? 'Hostname not identified'} · {host.status} · {host.ports.length} open ports</small>
+                  </span>
+                </button>
+              </li>
+            )) : worst.map((host) => (
+              <li key={host.key}>
+                <button onClick={() => { state.setHost(host.key); navigate('/hosts/' + encodeURIComponent(host.key)); }}>
+                  {host.score === null ? '—' : G(grade(host.score))}
+                  <span className="nm">
+                    <span className="mono">{host.ip}</span>
+                    <small>{host.hostname} · {host.vulns?.length ?? 0} findings</small>
                   </span>
                   <span className="lbl">{host.score}</span>
                 </button>
               </li>
             ))}
+            {isRealScan && !hosts.length && <li className="lbl">No live hosts found.</li>}
           </ul>
         </div>
       </div>
       <div className="row cols-2">
         <div className="panel">
           <h2>Findings by severity</h2>
-          <div className="donutwrap">
-            <svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Severity chart">
-              {circles}
-              <text x="55" y="60" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text)">{hostData.length}</text>
-            </svg>
-            <ul>
-              {SEV.map((level) => (
-                <li key={level}><span><span className="dot" style={{ background: SEVC[level] }} />{level[0].toUpperCase() + level.slice(1)}</span><b>{sevCounts[level]}</b></li>
-              ))}
-            </ul>
-          </div>
+          {hostData === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : (
+            <div className="donutwrap">
+              <svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Severity chart">
+                {circles}
+                <text x="55" y="60" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text)">{hostData.length}</text>
+              </svg>
+              <ul>
+                {SEV.map((level) => (
+                  <li key={level}><span><span className="dot" style={{ background: SEVC[level] }} />{level[0].toUpperCase() + level.slice(1)}</span><b>{sevCounts[level]}</b></li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <div className="panel">
           <h2>Most common services</h2>
@@ -552,18 +637,18 @@ function OverviewPage() {
 function HostsPage() {
   const navigate = useNavigate();
   const state = useAppState();
-  const base = state.cidr.split('.').slice(0, 3).join('.');
+  const hosts = getDisplayHosts(state.scan, state.cidr);
 
-  const filtered = HOSTS.filter((host) => {
-    const matchGrade = state.gradeFilter === 'all' || grade(host.score) === state.gradeFilter;
-    const haystack = `${base}.${host.n} ${host.name} ${host.os}`.toLowerCase();
+  const filtered = hosts.filter((host) => {
+    const matchGrade = host.score === null || state.gradeFilter === 'all' || grade(host.score) === state.gradeFilter;
+    const haystack = `${host.ip} ${host.hostname ?? ''} ${host.os ?? ''} ${host.status}`.toLowerCase();
     return matchGrade && haystack.includes(state.filter.toLowerCase());
   });
 
   const sorted = [...filtered].sort((a, b) => {
     const key = state.sortKey;
-    const valueA = key === 'ip' ? a.n : key === 'os' ? a.os : key === 'ports' ? a.ports.length : key === 'vulns' ? a.vulns.length : a.score;
-    const valueB = key === 'ip' ? b.n : key === 'os' ? b.os : key === 'ports' ? b.ports.length : key === 'vulns' ? b.vulns.length : b.score;
+    const valueA = key === 'ip' ? a.ip : key === 'os' ? a.os ?? '' : key === 'ports' ? a.ports.length : key === 'vulns' ? a.vulns?.length ?? -1 : a.score ?? -1;
+    const valueB = key === 'ip' ? b.ip : key === 'os' ? b.os ?? '' : key === 'ports' ? b.ports.length : key === 'vulns' ? b.vulns?.length ?? -1 : b.score ?? -1;
     if (typeof valueA === 'string' && typeof valueB === 'string') {
       return valueA.localeCompare(valueB) * state.sortDir;
     }
@@ -602,27 +687,23 @@ function HostsPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.length ? sorted.map((host) => {
-                const counts = { critical: 0, high: 0, medium: 0, low: 0 };
-                host.vulns.forEach((v) => { counts[v.sev] += 1; });
-                return (
-                  <tr className="click" tabIndex={0} key={host.n} onClick={() => navigate('/hosts/' + host.n)} onKeyDown={(e) => { if (e.key === 'Enter') navigate('/hosts/' + host.n); }}>
-                    <td><span className="mono">{base}.{host.n}</span><div className="lbl">{host.name}</div></td>
-                    <td>{host.os}</td>
-                    <td>{host.ports.length}</td>
-                    <td>
-                      {host.vulns.length ? (
-                        <span className="mini">
-                          {SEV.filter((level) => counts[level]).map((level) => (
-                            <span key={level} style={{ background: SEVC[level], color: level === 'medium' ? '#211800' : '#fff' }}>{counts[level]}</span>
-                          ))}
+              {sorted.length ? sorted.map((host) => (
+                <tr className="click" tabIndex={0} key={host.key} onClick={() => navigate('/hosts/' + encodeURIComponent(host.key))} onKeyDown={(e) => { if (e.key === 'Enter') navigate('/hosts/' + encodeURIComponent(host.key)); }}>
+                  <td><span className="mono">{host.ip}</span><div className="lbl">{host.hostname ?? host.status}</div></td>
+                  <td>{host.os ?? <span className="lbl">Not yet analyzed</span>}</td>
+                  <td>{host.ports.length}</td>
+                  <td>{host.vulns === null ? <span className="lbl">Not yet analyzed</span> : host.vulns.length ? (
+                    <span className="mini">
+                      {SEV.filter((level) => host.vulns?.some((finding) => finding.sev === level)).map((level) => (
+                        <span key={level} style={{ background: SEVC[level], color: level === 'medium' ? '#211800' : '#fff' }}>
+                          {host.vulns?.filter((finding) => finding.sev === level).length}
                         </span>
-                      ) : <span className="lbl">None</span>}
-                    </td>
-                    <td>{G(grade(host.score))} <span className="lbl">{host.score}</span></td>
-                  </tr>
-                );
-              }) : (
+                      ))}
+                    </span>
+                  ) : <span className="lbl">None</span>}</td>
+                  <td>{host.score === null ? <span className="lbl">Not yet analyzed</span> : <>{G(grade(host.score))} <span className="lbl">{host.score}</span></>}</td>
+                </tr>
+              )) : (
                 <tr><td colSpan={5} className="lbl" style={{ padding: '26px 12px' }}>No hosts match this filter. Clear the search or choose All grades.</td></tr>
               )}
             </tbody>
@@ -637,27 +718,27 @@ function HostDetailPage() {
   const navigate = useNavigate();
   const { n } = useParams();
   const state = useAppState();
-  const host = HOSTS.find((item) => item.n === Number(n ?? state.host));
+  const hostId = n ?? state.host;
+  const host = getDisplayHosts(state.scan, state.cidr).find((item) => item.key === hostId || item.ip === hostId);
   if (!host) {
     return <div className="panel empty"><h2>Host not found</h2></div>;
   }
-  const base = state.cidr.split('.').slice(0, 3).join('.');
-  const rank = grade(host.score);
-  const findings = [...host.vulns].sort((a, b) => SEV.indexOf(a.sev) - SEV.indexOf(b.sev) || b.cvss - a.cvss);
+  const rank = host.score === null ? null : grade(host.score);
+  const findings = host.vulns === null ? null : [...host.vulns].sort((a, b) => SEV.indexOf(a.sev) - SEV.indexOf(b.sev) || b.cvss - a.cvss);
 
   return (
     <>
       <button className="back" onClick={() => navigate('/hosts')}>← All hosts</button>
       <div className="hd">
-        <span className={`grade g-${rank}`} aria-label={`Grade ${rank}`}>{rank}</span>
+        <span className={rank ? `grade g-${rank}` : 'grade'} aria-label={rank ? `Grade ${rank}` : 'Grade not yet analyzed'}>{rank ?? '—'}</span>
         <div>
-          <h1 className="mono" style={{ margin: 0 }}>{base}.{host.n}</h1>
-          <div className="lbl">{host.name} · {host.os} · score {host.score}/100</div>
+          <h1 className="mono" style={{ margin: 0 }}>{host.ip}</h1>
+          <div className="lbl">{host.hostname ?? 'Hostname not identified'} · {host.os ?? 'OS not yet analyzed'} · {host.score === null ? 'Score not yet analyzed' : `score ${host.score}/100`} · {host.status}</div>
         </div>
       </div>
       <div className="panel" style={{ marginBottom: 16 }}>
-        <h2>Findings ({findings.length})</h2>
-        {findings.length ? (
+        <h2>{findings === null ? 'Findings' : `Findings (${findings.length})`}</h2>
+        {findings === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findings.length ? (
           <div className="tw">
             <table>
               <thead>
@@ -700,19 +781,20 @@ function HostDetailPage() {
               </thead>
               <tbody>
                 {host.ports.map((port) => (
-                  <tr key={`${host.n}-${port.port}-${port.service}`}>
-                    <td className="mono">{port.port}/{port.proto}</td>
+                  <tr key={`${host.key}-${port.port}-${port.service}`}>
+                    <td className="mono">{port.port}/{port.protocol}</td>
                     <td>{port.service}</td>
-                    <td>{port.product}</td>
+                    <td>{[port.product, port.version].filter(Boolean).join(' ') || 'Not identified'}</td>
                   </tr>
                 ))}
+                {!host.ports.length && <tr><td colSpan={3} className="lbl">No open ports reported.</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
         <div className="panel">
           <h2>What to fix first</h2>
-          {findings.length ? (
+          {findings === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findings.length ? (
             <ol className="recs">
               {findings.map((v) => <li key={`fix-${v.id}`}>{v.fix}</li>)}
             </ol>
