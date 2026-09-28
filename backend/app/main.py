@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import Scan, ScanCreateRequest
+from app.models import Host, Scan, ScanCreateRequest
+from app.scanner.discovery import run_discovery
 from app.scope import validate_cidr
 
 
@@ -20,8 +21,22 @@ app.add_middleware(
 scans: dict[UUID, Scan] = {}
 
 
+def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
+    scan = scans[scan_id]
+    try:
+        discovered_hosts = run_discovery(cidr)
+        scan.hosts = [
+            Host(ip=host['ip'], hostname=host['hostname'])
+            for host in discovered_hosts
+        ]
+        scan.status = 'completed'
+    except Exception as exc:
+        scan.status = 'failed'
+        scan.error = str(exc)
+
+
 @app.post('/scans', response_model=Scan, status_code=201)
-def create_scan(request: ScanCreateRequest) -> Scan:
+def create_scan(request: ScanCreateRequest, background_tasks: BackgroundTasks) -> Scan:
     try:
         network = validate_cidr(request.cidr, request.authorized)
     except ValueError as exc:
@@ -30,10 +45,11 @@ def create_scan(request: ScanCreateRequest) -> Scan:
     scan = Scan(
         id=uuid4(),
         cidr=str(network),
-        status='pending',
+        status='discovering',
         created_at=datetime.now(timezone.utc),
     )
     scans[scan.id] = scan
+    background_tasks.add_task(discover_scan_hosts, scan.id, scan.cidr)
     return scan
 
 
