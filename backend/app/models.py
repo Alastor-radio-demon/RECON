@@ -6,12 +6,20 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class CVE(BaseModel):
+    cve_id: str
+    description: str
+    cvss: float | None = None
+    severity: str
+
+
 class Port(BaseModel):
     port: int
     protocol: str
     service: str
     product: str | None = None
     version: str | None = None
+    cves: list[CVE] = Field(default_factory=list)
 
 
 class Host(BaseModel):

@@ -6,8 +6,9 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import Host, Port, Scan, ScanCreateRequest
+from app.models import CVE, Host, Port, Scan, ScanCreateRequest
 from app.scanner.discovery import run_discovery
+from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
 from app.scanner.scoring import score_host, score_network
 from app.scope import validate_cidr
@@ -38,6 +39,9 @@ async def scan_host(host: Host) -> None:
         finally:
             host.status = 'done'
         host.score, host.grade, host.risk_reasons = score_host(host)
+        for port in host.ports:
+            if port.product and port.version:
+                port.cves = [CVE(**cve) for cve in await lookup_cves(port.product, port.version)]
 
 
 async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:

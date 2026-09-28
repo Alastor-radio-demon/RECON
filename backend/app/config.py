@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     lab_mode: bool = True
     max_prefix: int = 24
+    NVD_API_KEY: str | None = None
 
 
 settings = Settings()
