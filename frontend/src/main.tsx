@@ -289,6 +289,8 @@ function ScanPage() {
   const [blips, setBlips] = React.useState<Array<{ cx: number; cy: number; color: string }>>([]);
   const activeScanId = React.useRef<string | null>(null);
   const pollTimer = React.useRef<number | null>(null);
+  const scanIsComplete = state.scan?.status === 'completed'
+    && state.scan.hosts.every((host) => host.status === 'done');
 
   const handleStart = async () => {
     const value = (document.getElementById('cidr') as HTMLInputElement | null)?.value.trim() ?? '';
@@ -328,6 +330,7 @@ function ScanPage() {
       state.setCidr(scan.cidr);
 
       let pollInFlight = false;
+      let lastKnownStatus = scan.status;
       const stopPolling = () => {
         if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
         pollTimer.current = null;
@@ -338,16 +341,19 @@ function ScanPage() {
       const poll = async () => {
         const scanId = activeScanId.current;
         if (!scanId || pollInFlight) return;
+        console.log('[scan poll] requesting status', { scanId, lastKnownStatus });
         pollInFlight = true;
         try {
           const updatedScan = await getScan(scanId);
+          lastKnownStatus = updatedScan.status;
+          console.log('[scan poll] received status', { scanId, status: updatedScan.status });
           state.setScan(updatedScan);
           setError('');
           setFound(updatedScan.hosts.length);
 
           const total = updatedScan.hosts.length;
           const done = updatedScan.hosts.filter((host) => host.status === 'done').length;
-          const isComplete = updatedScan.status === 'completed';
+          const isComplete = updatedScan.status === 'completed' && done === total;
           setProgress(total ? Math.round((done / total) * 100) : isComplete ? 100 : 0);
           setBlips(updatedScan.hosts.map((host, index) => {
             const addressPart = Number(host.ip.split('.').slice(-1)[0]);
@@ -464,7 +470,7 @@ function ScanPage() {
             <i style={{ display: 'block', height: '100%', width: `${state.scan?.status === 'discovering' && !state.scan.hosts.length ? 18 : progress}%`, background: 'var(--accent)', transition: 'width .2s linear' }} />
           </div>
           <div className="stats">
-            <span>{!state.scan ? 'Ready to scan' : state.scan.status === 'failed' ? 'Scan failed' : state.scan.status === 'completed' ? 'Done' : state.scan.status === 'discovering' && !state.scan.hosts.length ? 'Starting discovery' : state.scan.status === 'discovering' ? 'Scanning hosts' : 'Scanning ports'}</span>
+            <span>{!state.scan ? 'Ready to scan' : state.scan.status === 'failed' ? 'Scan failed' : scanIsComplete ? 'Done' : state.scan.status === 'discovering' && !state.scan.hosts.length ? 'Starting discovery' : state.scan.status === 'discovering' ? 'Scanning hosts' : 'Scanning ports'}</span>
             <span>{found} hosts found</span>
           </div>
           <ul className="log" aria-live="polite">
