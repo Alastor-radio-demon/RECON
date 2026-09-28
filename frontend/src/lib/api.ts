@@ -14,6 +14,9 @@ export interface Host {
   hostname: string | null;
   status: HostStatus;
   ports: Port[];
+  score: number | null;
+  grade: string | null;
+  risk_reasons: string[];
 }
 
 export interface Scan {
@@ -23,6 +26,8 @@ export interface Scan {
   created_at: string;
   hosts: Host[];
   error: string | null;
+  network_score: number | null;
+  network_grade: string | null;
 }
 
 declare global {

@@ -84,6 +84,8 @@ interface DisplayHost {
   status: 'pending' | 'scanning' | 'done';
   os: string | null;
   score: number | null;
+  grade: string | null;
+  riskReasons: string[] | null;
   ports: DisplayPort[];
   vulns: Finding[] | null;
 }
@@ -96,7 +98,9 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
       hostname: host.hostname,
       status: host.status,
       os: null,
-      score: null,
+      score: host.score,
+      grade: host.grade,
+      riskReasons: host.risk_reasons,
       ports: host.ports,
       vulns: null,
     }));
@@ -110,6 +114,8 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
     status: 'done',
     os: host.os,
     score: host.score,
+    grade: grade(host.score),
+    riskReasons: null,
     ports: host.ports.map((port) => ({
       port: port.port,
       protocol: port.proto,
@@ -488,16 +494,19 @@ function OverviewPage() {
   const navigate = useNavigate();
   const state = useAppState();
   const base = state.cidr.split('.').slice(0, 3).join('.');
-  const hosts = getDisplayHosts(state.scan, state.cidr);
-  const isRealScan = state.scan !== null;
+  const scan = state.scan;
+  const hosts = getDisplayHosts(scan, state.cidr);
+  const isRealScan = scan !== null;
   const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
   const hostData = isRealScan ? null : HOSTS.flatMap((host) => host.vulns.map((finding) => ({ ...finding, host })));
   hostData?.forEach((finding) => { sevCounts[finding.sev] += 1; });
   const ports = hosts.reduce((total, host) => total + host.ports.length, 0);
-  const avg = isRealScan || !hosts.length
-    ? null
-    : Math.round(hosts.reduce((sum, host) => sum + (host.score ?? 0), 0) / hosts.length);
-  const rank = avg === null ? null : grade(avg);
+  const avg = isRealScan
+    ? scan.network_score
+    : hosts.length
+      ? Math.round(hosts.reduce((sum, host) => sum + (host.score ?? 0), 0) / hosts.length)
+      : null;
+  const rank = isRealScan ? scan.network_grade : avg === null ? null : grade(avg);
   const totalFindings = hostData?.length || 1;
   const kev = hostData?.filter((finding) => finding.kev).length ?? 0;
   const C = 2 * Math.PI * 42;
@@ -696,7 +705,7 @@ function HostsPage() {
               {sorted.length ? sorted.map((host) => (
                 <tr className="click" tabIndex={0} key={host.key} onClick={() => navigate('/hosts/' + encodeURIComponent(host.key))} onKeyDown={(e) => { if (e.key === 'Enter') navigate('/hosts/' + encodeURIComponent(host.key)); }}>
                   <td><span className="mono">{host.ip}</span><div className="lbl">{host.hostname ?? host.status}</div></td>
-                  <td>{host.os ?? <span className="lbl">Not yet analyzed</span>}</td>
+                      <td>{host.os ?? <span className="lbl">Not yet analyzed</span>}</td>
                   <td>{host.ports.length}</td>
                   <td>{host.vulns === null ? <span className="lbl">Not yet analyzed</span> : host.vulns.length ? (
                     <span className="mini">
@@ -707,7 +716,7 @@ function HostsPage() {
                       ))}
                     </span>
                   ) : <span className="lbl">None</span>}</td>
-                  <td>{host.score === null ? <span className="lbl">Not yet analyzed</span> : <>{G(grade(host.score))} <span className="lbl">{host.score}</span></>}</td>
+                      <td>{host.grade === null ? <span className="lbl">Not yet analyzed</span> : <>{G(host.grade)} {host.score !== null && <span className="lbl">{host.score}</span>}</>}</td>
                 </tr>
               )) : (
                 <tr><td colSpan={5} className="lbl" style={{ padding: '26px 12px' }}>No hosts match this filter. Clear the search or choose All grades.</td></tr>
@@ -729,7 +738,7 @@ function HostDetailPage() {
   if (!host) {
     return <div className="panel empty"><h2>Host not found</h2></div>;
   }
-  const rank = host.score === null ? null : grade(host.score);
+  const rank = host.grade;
   const findings = host.vulns === null ? null : [...host.vulns].sort((a, b) => SEV.indexOf(a.sev) - SEV.indexOf(b.sev) || b.cvss - a.cvss);
 
   return (
@@ -805,6 +814,12 @@ function HostDetailPage() {
               {findings.map((v) => <li key={`fix-${v.id}`}>{v.fix}</li>)}
             </ol>
           ) : <p className="lbl" style={{ margin: 0 }}>Nothing to fix. Keep the system patched and re-scan after changes.</p>}
+          <h2>Risk factors</h2>
+          {host.riskReasons === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : host.riskReasons.length ? (
+            <ul className="recs">
+              {host.riskReasons.map((reason, index) => <li key={`${host.key}-risk-${index}`}>{reason}</li>)}
+            </ul>
+          ) : <p className="lbl" style={{ margin: 0 }}>No risk factors found</p>}
         </div>
       </div>
     </>
