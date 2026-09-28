@@ -19,6 +19,9 @@ class Host(BaseModel):
     hostname: str | None = None
     status: Literal['pending', 'scanning', 'done'] = 'pending'
     ports: list[Port] = Field(default_factory=list)
+    score: int | None = None
+    grade: str | None = None
+    risk_reasons: list[str] = Field(default_factory=list)
 
 
 class Scan(BaseModel):
@@ -28,6 +31,8 @@ class Scan(BaseModel):
     created_at: datetime
     hosts: list[Host] = Field(default_factory=list)
     error: str | None = None
+    network_score: int | None = None
+    network_grade: str | None = None
 
 
 class ScanCreateRequest(BaseModel):

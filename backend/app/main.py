@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models import Host, Port, Scan, ScanCreateRequest
 from app.scanner.discovery import run_discovery
 from app.scanner.portscan import run_portscan
+from app.scanner.scoring import score_host, score_network
 from app.scope import validate_cidr
 
 
@@ -36,6 +37,7 @@ async def scan_host(host: Host) -> None:
             logger.exception('Port scan failed for host %s', host.ip)
         finally:
             host.status = 'done'
+        host.score, host.grade, host.risk_reasons = score_host(host)
 
 
 async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
@@ -48,6 +50,7 @@ async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
         ]
         scan.status = 'completed'
         await asyncio.gather(*(scan_host(host) for host in scan.hosts))
+        scan.network_score, scan.network_grade = score_network(scan.hosts)
     except Exception as exc:
         scan.status = 'failed'
         scan.error = str(exc)
