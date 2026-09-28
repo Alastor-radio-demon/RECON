@@ -1,0 +1,9 @@
+@"
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.env
+tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
+"@ | Out-File -Encoding ascii .gitignore

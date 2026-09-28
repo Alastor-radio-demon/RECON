@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RECON – Network security dashboard</title>
+<style>
+:root{
+  --bg:#EEF3F3;--panel:#FFFFFF;--line:#D3DEE0;--text:#12262C;--muted:#5B7379;--accent:#0E7C86;--accent-ink:#FFFFFF;--cell:#DDE7E8;
+  --crit:#E5484D;--high:#EE8342;--med:#C9971C;--low:#4C8FCB;
+  --gA:#2FA37A;--gB:#6DB35F;--gC:#D9A72B;--gD:#EE8342;--gF:#E5484D;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--bg:#0F1B22;--panel:#15252D;--line:#26404A;--text:#DCE8EA;--muted:#8AA3A9;--accent:#5CC8D6;--accent-ink:#06222A;--cell:#1E333B;--med:#D9A72B;--low:#6BA9E0}
+}
+:root[data-theme="dark"]{--bg:#0F1B22;--panel:#15252D;--line:#26404A;--text:#DCE8EA;--muted:#8AA3A9;--accent:#5CC8D6;--accent-ink:#06222A;--cell:#1E333B;--med:#D9A72B;--low:#6BA9E0}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Avenir Next","Segoe UI",system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5}
+.mono{font-family:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;font-size:.92em}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+aside{border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:22px;position:sticky;top:0;height:100vh;align-self:start}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px}
+.brand svg{flex:none}
+.brand b{font-weight:800;letter-spacing:.16em;font-size:18px}
+nav{display:flex;flex-direction:column;gap:2px}
+nav button{background:none;border:0;text-align:left;padding:9px 10px;border-radius:6px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+nav button:hover{background:var(--cell);color:var(--text)}
+nav button[aria-current="page"]{background:var(--cell);color:var(--text);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.side-foot{margin-top:auto;font-size:13px;color:var(--muted);padding:0 8px}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;border:1px solid var(--line);font-size:12px;color:var(--muted)}
+main{padding:28px clamp(16px,3vw,40px) 60px;min-width:0;max-width:1200px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:16px;margin:0 0 12px}
+.sub{color:var(--muted);margin:0 0 22px;max-width:62ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.row{display:grid;gap:16px}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-scan{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+.cols-ov{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
+label.f{display:block;font-weight:600;margin-bottom:6px}
+input[type=text],select{width:100%;padding:10px 12px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
+input[type=text].mono{font-size:15px}
+.hint{color:var(--muted);font-size:13px;margin-top:6px}
+.err{color:var(--crit);font-size:14px;min-height:22px;margin:8px 0 0}
+.chk{display:flex;gap:10px;align-items:flex-start;margin:16px 0 4px}
+.chk input{margin-top:4px;accent-color:var(--accent)}
+.seg{display:flex;gap:8px;margin-top:6px}
+.seg label{flex:1;border:1px solid var(--line);border-radius:7px;padding:9px 11px;cursor:pointer;background:var(--bg)}
+.seg input{position:absolute;opacity:0}
+.seg label:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.seg small{display:block;color:var(--muted)}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:7px;padding:10px 16px;font-weight:700}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:none;color:var(--text);border:1px solid var(--line);font-weight:500}
+.btn.ghost:hover{background:var(--cell)}
+.btn[disabled]{opacity:.5;cursor:default}
+.actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+/* radar */
+.radar{display:block;width:100%;max-width:320px;margin:0 auto}
+.sweep{transform-origin:150px 150px;animation:spin 3s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.blip{animation:pop .5s ease-out}
+@keyframes pop{from{r:0;opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.sweep,.blip{animation:none}}
+.bar{height:8px;border-radius:99px;background:var(--cell);overflow:hidden;margin:14px 0 6px}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s linear}
+.stats{display:flex;justify-content:space-between;color:var(--muted);font-size:13px}
+.log{margin:14px 0 0;padding:0;list-style:none;max-height:150px;overflow:auto;font-size:13px;color:var(--muted)}
+.log li{padding:2px 0}.log li::before{content:"✓ ";color:var(--accent)}
+/* overview */
+.top{display:grid;grid-template-columns:auto repeat(4,1fr);gap:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-bottom:16px;overflow:hidden}
+.top>div{padding:16px 18px;border-left:1px solid var(--line)}
+.top>div:first-child{border-left:0;display:flex;align-items:center;gap:14px}
+.grade{width:64px;height:64px;border-radius:12px;display:grid;place-items:center;font-size:36px;font-weight:800;color:#fff}
+.g-A{background:var(--gA)}.g-B{background:var(--gB)}.g-C{background:var(--gC);color:#2a2100}.g-D{background:var(--gD)}.g-F{background:var(--gF)}
+.grade.sm{width:30px;height:30px;font-size:16px;border-radius:7px}
+.num{font-size:28px;font-weight:700;line-height:1.1}
+.lbl{color:var(--muted);font-size:13px}
+.grid16{display:grid;grid-template-columns:repeat(16,1fr);gap:3px}
+.grid16 button{aspect-ratio:1;border:0;border-radius:3px;background:var(--cell);padding:0}
+.grid16 button.dim{opacity:.4}
+.grid16 button.live{cursor:pointer}
+.grid16 button.live:hover{outline:2px solid var(--text);outline-offset:1px;z-index:1}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.donutwrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.donutwrap ul{list-style:none;margin:0;padding:0;flex:1;min-width:120px}
+.donutwrap li{display:flex;justify-content:space-between;padding:3px 0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
+.hbar{display:grid;grid-template-columns:90px 1fr 26px;gap:10px;align-items:center;padding:4px 0}
+.hbar .t{height:10px;border-radius:99px;background:var(--cell);overflow:hidden}
+.hbar .t i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.worst{list-style:none;margin:0;padding:0}
+.worst li button{width:100%;background:none;border:0;border-top:1px solid var(--line);padding:9px 0;display:flex;align-items:center;gap:12px;text-align:left}
+.worst li:first-child button{border-top:0}
+.worst li button:hover .nm{text-decoration:underline}
+.worst .nm{flex:1;min-width:0}
+.worst small{display:block;color:var(--muted)}
+/* tables */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:560px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-weight:600;color:var(--muted);font-size:13px;white-space:nowrap}
+th button{background:none;border:0;padding:0;font-weight:600;color:inherit}
+th button:hover{color:var(--text)}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--cell)}
+.tools{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.tools input{flex:1;min-width:180px}.tools select{width:auto}
+.sev{display:inline-block;min-width:66px;text-align:center;padding:1px 8px;border-radius:5px;font-size:12px;font-weight:700;color:#fff}
+.s-critical{background:var(--crit)}.s-high{background:var(--high)}.s-medium{background:var(--med);color:#211800}.s-low{background:var(--low)}
+.kev{font-size:11px;font-weight:700;border:1px solid var(--crit);color:var(--crit);border-radius:4px;padding:0 5px;margin-left:6px}
+.mini{display:inline-flex;gap:4px}
+.mini span{font-size:12px;font-weight:700;padding:0 6px;border-radius:4px;color:#fff}
+.hd{display:flex;gap:16px;align-items:center;margin:14px 0 20px;flex-wrap:wrap}
+.hd .grade{width:72px;height:72px;font-size:40px}
+.recs{margin:0;padding-left:20px}.recs li{padding:5px 0}
+.empty{text-align:center;padding:48px 20px}
+.empty p{color:var(--muted);max-width:44ch;margin:6px auto 18px}
+.back{background:none;border:0;color:var(--muted);padding:0;margin-bottom:6px}
+.back:hover{color:var(--text)}
+.demo{font-size:13px;color:var(--muted);margin-bottom:14px}
+@media (max-width:960px){.cols-scan,.cols-ov,.cols-2{grid-template-columns:1fr}.top{grid-template-columns:1fr 1fr}.top>div:first-child{grid-column:1/-1;border-bottom:1px solid var(--line)}.top>div:nth-child(3){border-left:0}}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr}
+  aside{position:sticky;top:0;z-index:5;height:auto;flex-direction:row;align-items:center;gap:8px;padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top,0px));background:var(--bg);border-right:0;border-bottom:1px solid var(--line);overflow-x:auto}
+  nav{flex-direction:row}.side-foot{display:none}.brand b{display:none}
+  nav button{white-space:nowrap}
+  nav button[aria-current="page"]{box-shadow:inset 0 -3px 0 var(--accent)}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="none" stroke="var(--accent)" stroke-width="2"/><circle cx="14" cy="14" r="6" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity=".6"/><circle cx="14" cy="14" r="2.2" fill="var(--accent)"/></svg>
+      <b>RECON</b>
+    </div>
+    <nav id="nav" aria-label="Main"></nav>
+    <div class="side-foot"><span class="pill">Demo data</span><p style="margin:10px 0 0">Scan only networks you own or are authorized to test.</p></div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const grade=s=>s>=90?'A':s>=80?'B':s>=70?'C':s>=55?'D':'F';
+const GC={A:'var(--gA)',B:'var(--gB)',C:'var(--gC)',D:'var(--gD)',F:'var(--gF)'};
+const SEVS=['critical','high','medium','low'];
+const SEVC={critical:'var(--crit)',high:'var(--high)',medium:'var(--med)',low:'var(--low)'};
+
+/* ---------- mock data (replace with API calls later) ---------- */
+const V=(id,sev,cvss,title,port,fix,kev=false)=>({id,sev,cvss,title,port,fix,kev});
+const H=(n,name,os,score,ports,vulns)=>({n,name,os,score,ports:ports.map(p=>({port:p[0],proto:'tcp',service:p[1],product:p[2]})),vulns});
+const HOSTS=[
+ H(1,'gateway.lan','MikroTik RouterOS 6.x',58,[[22,'ssh','OpenSSH 7.4'],[53,'domain','dnsmasq 2.80'],[80,'http','nginx 1.14.0'],[8291,'winbox','MikroTik Winbox']],[
+  V('CVE-2018-15473','medium',5.3,'OpenSSH username enumeration',22,'Upgrade OpenSSH and restrict SSH to a management VLAN.'),
+  V('EXPOSED-ADMIN','high',7.5,'Winbox admin port reachable from the whole LAN',8291,'Limit Winbox to an admin address list or disable it.')]),
+ H(10,'fileserver.lan','Ubuntu 16.04',32,[[21,'ftp','vsftpd 2.3.4'],[22,'ssh','OpenSSH 7.2p2'],[139,'netbios-ssn','Samba smbd 3.X'],[445,'microsoft-ds','Samba 4.3.11']],[
+  V('CVE-2011-2523','critical',10,'vsftpd 2.3.4 backdoor command execution',21,'Remove vsftpd 2.3.4 and install a maintained FTP or SFTP service.',true),
+  V('CVE-2017-7494','critical',9.8,'Samba remote code execution (SambaCry)',445,'Upgrade Samba to a patched release.',true),
+  V('CVE-2016-6210','medium',5.9,'OpenSSH user enumeration via timing',22,'Upgrade OpenSSH; move this OS off end-of-life.')]),
+ H(12,'printer-2f.lan','HP JetDirect embedded',71,[[80,'http','HP embedded web server'],[631,'ipp','CUPS 2.2'],[9100,'jetdirect','HP JetDirect']],[
+  V('CVE-2017-2741','high',8.4,'PJL remote code execution on print port',9100,'Update firmware and block port 9100 except from the print server.')]),
+ H(20,'web01.lan','Ubuntu 22.04',74,[[22,'ssh','OpenSSH 8.9p1'],[80,'http','nginx 1.18.0'],[443,'https','nginx 1.18.0']],[
+  V('CVE-2021-23017','high',7.7,'nginx resolver off-by-one',80,'Upgrade nginx to 1.20.1 or later.'),
+  V('TLS-WEAK-PROTO','medium',5,'TLS 1.0 and 1.1 still enabled',443,'Allow TLS 1.2 and 1.3 only.')]),
+ H(21,'db01.lan','Debian 11',66,[[22,'ssh','OpenSSH 8.4p1'],[3306,'mysql','MySQL 5.7.30']],[
+  V('EXPOSED-DB','high',7.5,'MySQL reachable from the whole subnet',3306,'Bind MySQL to the app server only and add firewall rules.'),
+  V('CVE-2020-14812','medium',4.9,'MySQL server locking component denial of service',3306,'Upgrade MySQL to the latest 5.7 patch or 8.x.')]),
+ H(34,'dc01.corp','Windows Server 2016',45,[[53,'domain','Simple DNS Plus'],[88,'kerberos-sec','Microsoft Kerberos'],[135,'msrpc','Microsoft RPC'],[389,'ldap','Active Directory LDAP'],[445,'microsoft-ds','SMB'],[3389,'ms-wbt-server','Microsoft RDP']],[
+  V('CVE-2020-1472','critical',10,'Netlogon elevation of privilege (Zerologon)',445,'Install the August 2020 or later cumulative update and enforce secure RPC.',true),
+  V('SMB-SIGNING','medium',5.3,'SMB signing not required',445,'Require SMB signing through Group Policy.'),
+  V('RDP-EXPOSED','medium',5,'RDP open to all workstations',3389,'Restrict RDP to a jump host and require NLA.')]),
+ H(50,'nas.lan','Synology DSM 7',83,[[22,'ssh','OpenSSH 8.2'],[80,'http','nginx'],[443,'https','nginx'],[5000,'http','Synology DSM']],[
+  V('TLS-CERT-EXPIRED','medium',4.3,'TLS certificate expired 41 days ago',443,'Renew the certificate and enable auto-renewal.')]),
+ H(51,'cam-lobby.lan','Embedded Linux (BusyBox)',28,[[23,'telnet','BusyBox telnetd'],[80,'http','GoAhead-Webs 2.5'],[554,'rtsp','RTSP stream']],[
+  V('CVE-2017-17562','critical',9.8,'GoAhead web server remote code execution',80,'Update camera firmware or replace the device.'),
+  V('WEAK-CREDS','high',8.8,'Telnet accepts a default credential pair',23,'Change default credentials and disable Telnet.'),
+  V('CLEARTEXT-TELNET','high',7.5,'Telnet transmits credentials in cleartext',23,'Disable Telnet; use SSH if remote access is needed.')]),
+ H(77,'dev-laptop.lan','macOS 14',91,[[7000,'afs3-fileserver','AirPlay receiver']],[]),
+ H(100,'pi-hole.lan','Debian 12',88,[[22,'ssh','OpenSSH 9.2p1'],[53,'domain','dnsmasq 2.89'],[80,'http','lighttpd 1.4.69']],[
+  V('HTTP-NO-TLS','low',3.7,'Admin interface served over HTTP',80,'Serve the admin page over HTTPS only.')]),
+ H(101,'hass.lan','Linux (Home Assistant OS)',79,[[22,'ssh','OpenSSH 9.1'],[8123,'http','Home Assistant']],[
+  V('HTTP-NO-TLS','low',3.7,'Web UI served over HTTP',8123,'Put the UI behind a TLS reverse proxy.')]),
+ H(130,'win-ws04.corp','Windows 10',62,[[135,'msrpc','Microsoft RPC'],[445,'microsoft-ds','SMB'],[3389,'ms-wbt-server','Microsoft RDP']],[
+  V('RDP-EXPOSED','high',7,'RDP reachable without network-level authentication',3389,'Enable NLA and restrict RDP to a jump host.'),
+  V('SMB-SIGNING','medium',5.3,'SMB signing not required',445,'Require SMB signing through Group Policy.')]),
+ H(200,'jenkins.lan','Ubuntu 20.04',40,[[22,'ssh','OpenSSH 8.2p1'],[8080,'http','Jetty 9.4 (Jenkins 2.319)']],[
+  V('CVE-2024-23897','critical',9.8,'Jenkins CLI arbitrary file read',8080,'Upgrade Jenkins to a fixed LTS release and disable the CLI if unused.',true),
+  V('EXPOSED-ADMIN','high',7.5,'CI server open to the whole LAN',8080,'Place behind a VPN or reverse proxy with SSO.')]),
+ H(210,'voip.lan','Linux',69,[[22,'ssh','OpenSSH 7.9p1'],[5060,'sip','Asterisk 16.2']],[
+  V('SIP-EXPOSED','medium',5,'SIP service open to the whole LAN',5060,'Restrict SIP to known phone addresses.')])
+];
+const HISTORY=[
+ {when:'Today, 09:12',cidr:'192.168.1.0/24',hosts:14,find:22,g:'D',dur:'6m 41s'},
+ {when:'Yesterday, 17:40',cidr:'192.168.1.0/24',hosts:13,find:25,g:'D',dur:'6m 12s'},
+ {when:'Mon, 14:05',cidr:'10.10.0.0/24',hosts:31,find:40,g:'F',dur:'11m 03s'},
+ {when:'Last week',cidr:'192.168.1.0/24',hosts:12,find:28,g:'D',dur:'5m 58s'}
+];
+
+/* ---------- state ---------- */
+const S={view:'scan',loaded:false,cidr:'192.168.1.0/24',preset:'quick',host:null,sortK:'score',sortDir:1,q:'',gf:'all',scanning:false,timer:null};
+const NAV=[['scan','Scan'],['overview','Overview'],['hosts','Hosts'],['history','History']];
+
+function go(v,host=null){clearInterval(S.timer);S.scanning=false;S.view=v;S.host=host;render();window.scrollTo(0,0)}
+function renderNav(){
+  $('#nav').innerHTML=NAV.map(([k,t])=>{
+    const cur=(S.view===k||(S.view==='host'&&k==='hosts'))?' aria-current="page"':'';
+    const badge=k==='hosts'&&S.loaded?`<span class="pill">${HOSTS.length}</span>`:'';
+    return `<button data-go="${k}"${cur}>${t}${badge}</button>`}).join('');
+  $('#nav').querySelectorAll('button').forEach(b=>b.onclick=()=>go(b.dataset.go));
+}
+const allVulns=()=>HOSTS.flatMap(h=>h.vulns.map(v=>({...v,host:h})));
+const sevCounts=()=>{const c={critical:0,high:0,medium:0,low:0};allVulns().forEach(v=>c[v.sev]++);return c};
+const G=g=>`<span class="grade sm g-${g}" aria-label="Grade ${g}">${g}</span>`;
+
+/* ---------- views ---------- */
+function empty(){return `<div class="panel empty"><h2>No scan results yet</h2><p>Scan a network to see live hosts, open services, and known vulnerabilities here.</p><div class="actions" style="justify-content:center"><button class="btn" data-go="scan">Start a scan</button><button class="btn ghost" id="demo">Load demo results</button></div></div>`}
+function bindEmpty(){const d=$('#demo');if(d)d.onclick=()=>{S.loaded=true;go('overview')};document.querySelectorAll('#main [data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go))}
+
+function viewScan(){
+  return `<h1>New scan</h1><p class="sub">Enter a network range. RECON finds live hosts, checks their services, and grades what it finds.</p>
+  <div class="row cols-scan">
+   <div class="panel">
+    <label class="f" for="cidr">Network range (CIDR)</label>
+    <input id="cidr" class="mono" type="text" value="${esc(S.cidr)}" autocomplete="off" spellcheck="false" placeholder="192.168.1.0/24">
+    <div class="hint">Up to 254 hosts (/24). Private ranges are allowed in lab mode.</div>
+    <div style="margin-top:16px"><span class="f" style="display:block;font-weight:600">Scan depth</span>
+     <div class="seg">
+      <label><input type="radio" name="preset" value="quick" ${S.preset==='quick'?'checked':''}>Quick<small>Top 100 ports, about 6 min</small></label>
+      <label><input type="radio" name="preset" value="full" ${S.preset==='full'?'checked':''}>Full<small>Top 1000 ports, about 25 min</small></label>
+     </div></div>
+    <label class="chk"><input type="checkbox" id="auth"><span>I own this network or have written permission to scan it.</span></label>
+    <p class="err" id="err" role="alert"></p>
+    <div class="actions"><button class="btn" id="start">Start scan</button><button class="btn ghost" id="demo2">Skip and load demo results</button></div>
+   </div>
+   <div class="panel">
+    <svg class="radar" viewBox="0 0 300 300" role="img" aria-label="Scan radar">
+     <defs><radialGradient id="rg"><stop offset="0" stop-color="var(--accent)" stop-opacity=".0"/><stop offset="1" stop-color="var(--accent)" stop-opacity=".35"/></radialGradient></defs>
+     <g fill="none" stroke="var(--line)" stroke-width="1"><circle cx="150" cy="150" r="140"/><circle cx="150" cy="150" r="93"/><circle cx="150" cy="150" r="47"/><line x1="150" y1="10" x2="150" y2="290"/><line x1="10" y1="150" x2="290" y2="150"/></g>
+     <g id="sweepg" style="display:none"><path class="sweep" d="M150 150 L150 10 A140 140 0 0 0 80 28.8 Z" fill="url(#rg)"/></g>
+     <g id="blips"></g><circle cx="150" cy="150" r="3.5" fill="var(--accent)"/>
+    </svg>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="pb"><i id="pf"></i></div>
+    <div class="stats"><span id="st">Idle</span><span id="hc">0 hosts found</span></div>
+    <ul class="log" id="log" aria-live="polite"></ul>
+   </div>
+  </div>`;
+}
+function bindScan(){
+  document.querySelectorAll('input[name=preset]').forEach(r=>r.onchange=()=>S.preset=r.value);
+  $('#demo2').onclick=()=>{S.loaded=true;go('overview')};
+  $('#start').onclick=()=>{
+    const v=$('#cidr').value.trim(),e=$('#err'),m=v.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+    if(!m){e.textContent='Enter a range like 192.168.1.0/24.';return}
+    const o=m.slice(1,5).map(Number),p=+m[5];
+    if(o.some(x=>x>255)||p>32){e.textContent='That address is not valid. Each part must be 0 to 255.';return}
+    if(p<24){e.textContent='Ranges larger than /24 are blocked in this version. Try a /24 or smaller.';return}
+    if(o[0]===127||o[0]>=224||(o[0]===169&&o[1]===254)){e.textContent='Loopback, multicast, and link-local ranges cannot be scanned.';return}
+    if(!$('#auth').checked){e.textContent='Confirm that you are authorized to scan this network.';return}
+    e.textContent='';S.cidr=v;runSim();
+  };
+}
+function runSim(){
+  $('#start').disabled=true;$('#sweepg').style.display='';
+  const steps=[[4,'Scope check passed: /24, lab mode on'],[12,'Host discovery started (ping and ARP)'],[42,'Discovery finished: 14 hosts up of 254'],[48,'Port sweep started (top '+(S.preset==='quick'?100:1000)+' ports)'],[70,'Service and version detection done'],[84,'CVE, known-exploited, and EPSS lookups done'],[95,'Risk scoring done']];
+  let p=0,shown=0,found=0;S.scanning=true;
+  const svg=$('#blips'),log=$('#log');
+  S.timer=setInterval(()=>{
+    p+=2;
+    while(shown<steps.length&&p>=steps[shown][0]){log.insertAdjacentHTML('beforeend',`<li>${steps[shown][1]}</li>`);log.scrollTop=log.scrollHeight;shown++}
+    const target=p<12?0:Math.min(HOSTS.length,Math.round((p-12)/30*HOSTS.length));
+    while(found<target){const h=HOSTS[found],a=(h.n*47)%360*Math.PI/180,r=30+((h.n*13)%100);
+      svg.insertAdjacentHTML('beforeend',`<circle class="blip" cx="${150+r*Math.sin(a)}" cy="${150-r*Math.cos(a)}" r="4.5" fill="${GC[grade(h.score)]}"/>`);found++}
+    $('#pf').style.width=p+'%';$('#pb').setAttribute('aria-valuenow',p);
+    $('#st').textContent=p<12?'Checking scope':p<45?'Finding hosts':p<72?'Scanning ports':p<100?'Analyzing findings':'Done';
+    $('#hc').textContent=found+' hosts found';
+    if(p>=100){clearInterval(S.timer);S.scanning=false;S.loaded=true;setTimeout(()=>go('overview'),700)}
+  },200);
+}
+
+function viewOverview(){
+  const sc=sevCounts(),vt=allVulns(),kev=vt.filter(v=>v.kev).length;
+  const ports=HOSTS.reduce((a,h)=>a+h.ports.length,0),avg=Math.round(HOSTS.reduce((a,h)=>a+h.score,0)/HOSTS.length),g=grade(avg);
+  const base=S.cidr.split('.').slice(0,3).join('.');
+  const cells=Array.from({length:256},(_,i)=>{const h=HOSTS.find(x=>x.n===i);
+    if(h){const gg=grade(h.score);return `<button class="live" data-h="${h.n}" style="background:${GC[gg]}" title="${base}.${i} ${esc(h.name)} · grade ${gg}" aria-label="${base}.${i} ${esc(h.name)}, grade ${gg}"></button>`}
+    return `<button class="${i===0||i===255?'dim':''}" tabindex="-1" aria-hidden="true" title="${base}.${i}"></button>`}).join('');
+  const tot=vt.length||1,C=2*Math.PI*42;let off=0;
+  const arcs=SEVS.map(s=>{const len=sc[s]/tot*C,el=`<circle cx="55" cy="55" r="42" fill="none" stroke="${SEVC[s]}" stroke-width="16" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 55 55)"/>`;off+=len;return el}).join('');
+  const svc={};HOSTS.forEach(h=>h.ports.forEach(p=>{const k=p.service;svc[k]=(svc[k]||0)+1}));
+  const top=Object.entries(svc).sort((a,b)=>b[1]-a[1]).slice(0,6),mx=top[0][1];
+  const worst=[...HOSTS].sort((a,b)=>a.score-b.score).slice(0,5);
+  return `<h1>Network overview</h1><p class="sub">${esc(S.cidr)} · scanned today at 09:12. Select a square or a host to see its details.</p>
+  <div class="demo">Showing demo data. Nothing here came from a real scan.</div>
+  <div class="top">
+   <div><span class="grade g-${g}" aria-label="Network grade ${g}">${g}</span><div><div class="num">${avg}<span class="lbl">/100</span></div><div class="lbl">Network score</div></div></div>
+   <div><div class="num">${HOSTS.length}</div><div class="lbl">Live hosts</div></div>
+   <div><div class="num">${ports}</div><div class="lbl">Open ports</div></div>
+   <div><div class="num">${vt.length}</div><div class="lbl">Findings</div></div>
+   <div><div class="num" style="color:var(--crit)">${kev}</div><div class="lbl">Known exploited</div></div>
+  </div>
+  <div class="row cols-ov" style="margin-bottom:16px">
+   <div class="panel"><h2>Subnet map</h2>
+    <div class="grid16" id="map">${cells}</div>
+    <div class="legend">${['A','B','C','D','F'].map(x=>`<span><i style="background:${GC[x]}"></i>Grade ${x}</span>`).join('')}<span><i style="background:var(--cell)"></i>No response</span></div>
+    <div class="hint">Each square is one address, .0 to .255, left to right, top to bottom.</div></div>
+   <div class="panel"><h2>Riskiest hosts</h2><ul class="worst">${worst.map(h=>`<li><button data-h="${h.n}">${G(grade(h.score))}<span class="nm"><span class="mono">${base}.${h.n}</span><small>${esc(h.name)} · ${h.vulns.length} findings</small></span><span class="lbl">${h.score}</span></button></li>`).join('')}</ul></div>
+  </div>
+  <div class="row cols-2">
+   <div class="panel"><h2>Findings by severity</h2><div class="donutwrap">
+    <svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Severity chart">${arcs}<text x="55" y="60" text-anchor="middle" font-size="20" font-weight="700" fill="var(--text)">${vt.length}</text></svg>
+    <ul>${SEVS.map(s=>`<li><span><span class="dot" style="background:${SEVC[s]}"></span>${s[0].toUpperCase()+s.slice(1)}</span><b>${sc[s]}</b></li>`).join('')}</ul></div></div>
+   <div class="panel"><h2>Most common services</h2>${top.map(([k,n])=>`<div class="hbar"><span class="mono">${esc(k)}</span><span class="t"><i style="width:${n/mx*100}%"></i></span><b>${n}</b></div>`).join('')}</div>
+  </div>`;
+}
+function bindOverview(){document.querySelectorAll('#main [data-h]').forEach(b=>b.onclick=()=>go('host',+b.dataset.h))}
+
+function viewHosts(){
+  const base=S.cidr.split('.').slice(0,3).join('.');
+  const sevRank=h=>h.vulns.reduce((a,v)=>Math.min(a,SEVS.indexOf(v.sev)),9);
+  const keys={ip:h=>h.n,os:h=>h.os,ports:h=>h.ports.length,vulns:h=>h.vulns.length,score:h=>h.score};
+  let list=HOSTS.filter(h=>(S.gf==='all'||grade(h.score)===S.gf)&&(`${base}.${h.n} ${h.name} ${h.os}`).toLowerCase().includes(S.q.toLowerCase()));
+  list.sort((a,b)=>{const x=keys[S.sortK](a),y=keys[S.sortK](b);return (x>y?1:x<y?-1:0)*S.sortDir});
+  const th=(k,t)=>`<th aria-sort="${S.sortK===k?(S.sortDir>0?'ascending':'descending'):'none'}"><button data-sort="${k}">${t}${S.sortK===k?(S.sortDir>0?' ▲':' ▼'):''}</button></th>`;
+  const rows=list.map(h=>{const c={critical:0,high:0,medium:0,low:0};h.vulns.forEach(v=>c[v.sev]++);
+    return `<tr class="click" tabindex="0" data-h="${h.n}"><td><span class="mono">${base}.${h.n}</span><div class="lbl">${esc(h.name)}</div></td><td>${esc(h.os)}</td><td>${h.ports.length}</td>
+    <td>${h.vulns.length?`<span class="mini">${SEVS.filter(s=>c[s]).map(s=>`<span style="background:${SEVC[s]};${s==='medium'?'color:#211800':''}">${c[s]}</span>`).join('')}</span>`:'<span class="lbl">None</span>'}</td><td>${G(grade(h.score))} <span class="lbl">${h.score}</span></td></tr>`}).join('');
+  return `<h1>Hosts</h1><p class="sub">Every live address found in the last scan. Sort by any column.</p>
+  <div class="panel"><div class="tools"><input type="text" id="q" placeholder="Filter by address, name, or OS" value="${esc(S.q)}" aria-label="Filter hosts">
+   <select id="gf" aria-label="Filter by grade"><option value="all">All grades</option>${['A','B','C','D','F'].map(g=>`<option value="${g}"${S.gf===g?' selected':''}>Grade ${g}</option>`).join('')}</select></div>
+   <div class="tw"><table><thead><tr>${th('ip','Host')}${th('os','Operating system')}${th('ports','Open ports')}${th('vulns','Findings')}${th('score','Grade')}</tr></thead>
+   <tbody>${rows||`<tr><td colspan="5" class="lbl" style="padding:26px 12px">No hosts match this filter. Clear the search or choose All grades.</td></tr>`}</tbody></table></div></div>`;
+}
+function bindHosts(){
+  document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{const k=b.dataset.sort;S.sortDir=S.sortK===k?-S.sortDir:1;S.sortK=k;render()});
+  document.querySelectorAll('tr[data-h]').forEach(r=>{r.onclick=()=>go('host',+r.dataset.h);r.onkeydown=e=>{if(e.key==='Enter')go('host',+r.dataset.h)}});
+  const q=$('#q');q.oninput=()=>{S.q=q.value;const p=q.selectionStart;render();const n=$('#q');n.focus();n.setSelectionRange(p,p)};
+  $('#gf').onchange=e=>{S.gf=e.target.value;render()};
+}
+
+function viewHost(){
+  const h=HOSTS.find(x=>x.n===S.host),base=S.cidr.split('.').slice(0,3).join('.'),g=grade(h.score);
+  const vs=[...h.vulns].sort((a,b)=>SEVS.indexOf(a.sev)-SEVS.indexOf(b.sev)||b.cvss-a.cvss);
+  return `<button class="back" data-go="hosts">← All hosts</button>
+  <div class="hd"><span class="grade g-${g}" aria-label="Grade ${g}">${g}</span><div><h1 class="mono" style="margin:0">${base}.${h.n}</h1><div class="lbl">${esc(h.name)} · ${esc(h.os)} · score ${h.score}/100</div></div></div>
+  <div class="panel" style="margin-bottom:16px"><h2>Findings (${vs.length})</h2>
+   ${vs.length?`<div class="tw"><table><thead><tr><th>Severity</th><th>Finding</th><th>Port</th><th>CVSS</th></tr></thead><tbody>${vs.map(v=>`<tr><td><span class="sev s-${v.sev}">${v.sev}</span></td><td><b>${esc(v.title)}</b>${v.kev?'<span class="kev" title="Listed in the CISA Known Exploited Vulnerabilities catalog">KEV</span>':''}<div class="lbl mono">${esc(v.id)}</div></td><td class="mono">${v.port}</td><td>${v.cvss.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>`:'<p class="lbl" style="margin:0">No findings on this host. Its open services match no known issues.</p>'}</div>
+  <div class="row cols-2">
+   <div class="panel"><h2>Open ports (${h.ports.length})</h2><div class="tw"><table><thead><tr><th>Port</th><th>Service</th><th>Version</th></tr></thead><tbody>${h.ports.map(p=>`<tr><td class="mono">${p.port}/${p.proto}</td><td>${esc(p.service)}</td><td>${esc(p.product)}</td></tr>`).join('')}</tbody></table></div></div>
+   <div class="panel"><h2>What to fix first</h2>${vs.length?`<ol class="recs">${vs.map(v=>`<li>${esc(v.fix)}</li>`).join('')}</ol>`:'<p class="lbl" style="margin:0">Nothing to fix. Keep the system patched and re-scan after changes.</p>'}</div>
+  </div>`;
+}
+
+function viewHistory(){
+  return `<h1>Scan history</h1><p class="sub">Earlier scans, newest first. Open one to review its results.</p>
+  <div class="panel"><div class="tw"><table><thead><tr><th>Started</th><th>Range</th><th>Hosts</th><th>Findings</th><th>Grade</th><th>Duration</th><th></th></tr></thead><tbody>
+  ${HISTORY.map((r,i)=>`<tr><td>${r.when}</td><td class="mono">${r.cidr}</td><td>${r.hosts}</td><td>${r.find}</td><td>${G(r.g)}</td><td>${r.dur}</td><td>${i===0?'<button class="btn ghost" data-open>Open</button>':'<span class="lbl">Archived</span>'}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+
+function render(){
+  renderNav();const m=$('#main');
+  if(S.view==='scan'){m.innerHTML=viewScan();bindScan();return}
+  if(!S.loaded&&S.view!=='history'){m.innerHTML=`<h1>${S.view==='hosts'?'Hosts':'Network overview'}</h1><p class="sub"></p>${empty()}`;bindEmpty();return}
+  if(S.view==='overview'){m.innerHTML=viewOverview();bindOverview()}
+  else if(S.view==='hosts'){m.innerHTML=viewHosts();bindHosts()}
+  else if(S.view==='host'){m.innerHTML=viewHost();m.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>go(b.dataset.go))}
+  else if(S.view==='history'){m.innerHTML=viewHistory();const o=m.querySelector('[data-open]');if(o)o.onclick=()=>{S.loaded=true;go('overview')}}
+}
+render();
+</script>
+</body>
+</html>
