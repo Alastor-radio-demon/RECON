@@ -8,7 +8,8 @@ from app.config import settings
 
 
 NVD_API_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0'
-_cve_cache: dict[str, list[dict[str, Any]]] = {}
+EMPTY_RESULT_CACHE_TTL = 300.0
+_cve_cache: dict[str, tuple[list[dict[str, Any]], float | None]] = {}
 _request_semaphore = asyncio.Semaphore(1)
 _last_request_at: float | None = None
 logger = logging.getLogger(__name__)
@@ -80,25 +81,40 @@ def _parse_nvd_response(data: Any) -> list[dict[str, Any]]:
     return results
 
 
+def _get_cached_result(cache_key: str, now: float) -> list[dict[str, Any]] | None:
+    cached = _cve_cache.get(cache_key)
+    if cached is None:
+        return None
+
+    result, expires_at = cached
+    if expires_at is not None and now >= expires_at:
+        del _cve_cache[cache_key]
+        return None
+    return result
+
+
 async def lookup_cves(product: str, version: str) -> list[dict[str, Any]]:
     global _last_request_at
 
     cache_key = f'{product}:{version}'
-    if cache_key in _cve_cache:
-        return _cve_cache[cache_key]
+    loop = asyncio.get_running_loop()
+    cached_result = _get_cached_result(cache_key, loop.time())
+    if cached_result is not None:
+        return cached_result
 
     async with _request_semaphore:
-        if cache_key in _cve_cache:
-            return _cve_cache[cache_key]
+        cached_result = _get_cached_result(cache_key, loop.time())
+        if cached_result is not None:
+            return cached_result
 
         delay = 0.6 if settings.NVD_API_KEY else 6.0
-        loop = asyncio.get_running_loop()
         if _last_request_at is not None:
             elapsed = loop.time() - _last_request_at
             if elapsed < delay:
                 await asyncio.sleep(delay - elapsed)
 
         headers = {'apiKey': settings.NVD_API_KEY} if settings.NVD_API_KEY else None
+        cache_expires_at: float | None = None
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
@@ -110,12 +126,19 @@ async def lookup_cves(product: str, version: str) -> list[dict[str, Any]]:
                     headers=headers,
                 )
             response.raise_for_status()
-            result = _parse_nvd_response(response.json())
+            data = response.json()
+            result = _parse_nvd_response(data)
+            if not result:
+                total_results = data.get('totalResults') if isinstance(data, dict) else None
+                if type(total_results) is not int or total_results != 0:
+                    raise ValueError('NVD empty response did not report totalResults: 0.')
+                cache_expires_at = loop.time() + EMPTY_RESULT_CACHE_TTL
         except Exception as exc:
             logger.warning('NVD CVE lookup failed for %s: %s', cache_key, exc)
             result = []
         finally:
             _last_request_at = loop.time()
 
-        _cve_cache[cache_key] = result
+        if result or cache_expires_at is not None:
+            _cve_cache[cache_key] = (result, cache_expires_at)
         return result

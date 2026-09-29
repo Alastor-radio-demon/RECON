@@ -8,6 +8,7 @@ from app.scanner import enrich
 
 NVD_RESPONSE = {
     'resultsPerPage': 5,
+    'totalResults': 3,
     'vulnerabilities': [
         {
             'cve': {
@@ -124,7 +125,44 @@ async def test_lookup_cves_parses_mocked_nvd_response_and_caches_result(
 
 
 @pytest.mark.anyio
-async def test_lookup_cves_returns_empty_list_and_caches_on_error(
+async def test_lookup_cves_caches_genuine_zero_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class MockResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {'totalResults': 0, 'vulnerabilities': []}
+
+    class MockAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            pass
+
+        async def __aenter__(self) -> 'MockAsyncClient':
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def get(self, *_: object, **__: object) -> MockResponse:
+            nonlocal calls
+            calls += 1
+            return MockResponse()
+
+    monkeypatch.setattr(config.settings, 'NVD_API_KEY', None)
+    monkeypatch.setattr(enrich.httpx, 'AsyncClient', MockAsyncClient)
+
+    assert await enrich.lookup_cves('nginx', '1.24') == []
+    assert await enrich.lookup_cves('nginx', '1.24') == []
+    assert calls == 1
+    assert enrich._cve_cache['nginx:1.24'][1] is not None
+
+
+@pytest.mark.anyio
+async def test_lookup_cves_retries_after_error_instead_of_caching_miss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls = 0
@@ -139,14 +177,23 @@ async def test_lookup_cves_returns_empty_list_and_caches_on_error(
         async def __aexit__(self, *_: object) -> None:
             return None
 
-        async def get(self, *_: object, **__: object) -> None:
+        async def get(self, *_: object, **__: object) -> Any:
             nonlocal calls
             calls += 1
-            raise TimeoutError('request timed out')
+            if calls == 1:
+                raise TimeoutError('request timed out')
+            return MockResponse()
+
+    class MockResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return NVD_RESPONSE
 
     monkeypatch.setattr(config.settings, 'NVD_API_KEY', None)
     monkeypatch.setattr(enrich.httpx, 'AsyncClient', MockAsyncClient)
 
     assert await enrich.lookup_cves('nginx', '1.24') == []
-    assert await enrich.lookup_cves('nginx', '1.24') == []
-    assert calls == 1
+    assert await enrich.lookup_cves('nginx', '1.24')
+    assert calls == 2
