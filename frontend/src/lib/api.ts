@@ -1,12 +1,20 @@
 export type ScanStatus = 'pending' | 'discovering' | 'completed' | 'failed';
 export type HostStatus = 'pending' | 'scanning' | 'done';
 
+export interface CVE {
+  cve_id: string;
+  description: string;
+  cvss: number | null;
+  severity: string;
+}
+
 export interface Port {
   port: number;
   protocol: string;
   service: string;
   product: string | null;
   version: string | null;
+  cves: CVE[];
 }
 
 export interface Host {

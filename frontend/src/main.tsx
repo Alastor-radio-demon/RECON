@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import './styles/recon.css';
-import { HOSTS, HISTORY, grade, GC, SEV, SEVC, type Finding } from './data/demo';
-import { createScan, getScan, type Scan } from './lib/api';
+import { HOSTS, HISTORY, grade, GC, SEV, SEVC, type Finding, type Severity } from './data/demo';
+import { createScan, getScan, type CVE, type Scan } from './lib/api';
 
 const NAV = [
   ['scan', 'Scan'],
@@ -77,6 +77,12 @@ interface DisplayPort {
   version: string | null;
 }
 
+interface HostCVE {
+  cve: CVE;
+  port: number;
+  service: string;
+}
+
 interface DisplayHost {
   key: string;
   ip: string;
@@ -88,6 +94,28 @@ interface DisplayHost {
   riskReasons: string[] | null;
   ports: DisplayPort[];
   vulns: Finding[] | null;
+  cves: HostCVE[] | null;
+}
+
+function severityRank(severity: string): number {
+  const index = SEV.indexOf(severity.toLowerCase() as Severity);
+  return index === -1 ? SEV.length : index;
+}
+
+function compareCVEs(a: HostCVE, b: HostCVE): number {
+  return severityRank(a.cve.severity) - severityRank(b.cve.severity)
+    || (b.cve.cvss ?? -1) - (a.cve.cvss ?? -1);
+}
+
+function getHostFindingCount(host: DisplayHost): number | null {
+  return host.cves?.length ?? host.vulns?.length ?? null;
+}
+
+function getHostSeverityCount(host: DisplayHost, severity: Severity): number {
+  if (host.cves !== null) {
+    return host.cves.filter((finding) => finding.cve.severity.toLowerCase() === severity).length;
+  }
+  return host.vulns?.filter((finding) => finding.sev === severity).length ?? 0;
 }
 
 function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
@@ -103,6 +131,7 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
       riskReasons: host.risk_reasons,
       ports: host.ports,
       vulns: null,
+      cves: host.ports.flatMap((port) => port.cves.map((cve) => ({ cve, port: port.port, service: port.service }))),
     }));
   }
 
@@ -124,6 +153,7 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
       version: null,
     })),
     vulns: host.vulns,
+    cves: null,
   }));
 }
 
@@ -497,9 +527,18 @@ function OverviewPage() {
   const scan = state.scan;
   const hosts = getDisplayHosts(scan, state.cidr);
   const isRealScan = scan !== null;
-  const sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
-  const hostData = isRealScan ? null : HOSTS.flatMap((host) => host.vulns.map((finding) => ({ ...finding, host })));
-  hostData?.forEach((finding) => { sevCounts[finding.sev] += 1; });
+  const sevCounts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  const demoFindings = isRealScan ? null : HOSTS.flatMap((host) => host.vulns.map((finding) => ({ ...finding, host })));
+  const liveCves = isRealScan ? hosts.flatMap((host) => host.cves ?? []) : [];
+  if (demoFindings) {
+    demoFindings.forEach((finding) => { sevCounts[finding.sev] += 1; });
+  } else {
+    liveCves.forEach(({ cve }) => {
+      const severity = cve.severity.toLowerCase() as Severity;
+      if (SEV.includes(severity)) sevCounts[severity] += 1;
+    });
+  }
+  const findingsCount = isRealScan ? liveCves.length : demoFindings?.length ?? 0;
   const ports = hosts.reduce((total, host) => total + host.ports.length, 0);
   const avg = isRealScan
     ? scan.network_score
@@ -507,8 +546,8 @@ function OverviewPage() {
       ? Math.round(hosts.reduce((sum, host) => sum + (host.score ?? 0), 0) / hosts.length)
       : null;
   const rank = isRealScan ? scan.network_grade : avg === null ? null : grade(avg);
-  const totalFindings = hostData?.length || 1;
-  const kev = hostData?.filter((finding) => finding.kev).length ?? 0;
+  const totalFindings = findingsCount || 1;
+  const kev = demoFindings?.filter((finding) => finding.kev).length ?? 0;
   const C = 2 * Math.PI * 42;
   let offset = 0;
   const circles = SEV.map((level) => {
@@ -568,11 +607,11 @@ function OverviewPage() {
           <div className="lbl">Open ports</div>
         </div>
         <div>
-          <div className="num">{hostData?.length ?? '—'}</div>
+          <div className="num">{findingsCount}</div>
           <div className="lbl">Findings</div>
         </div>
         <div>
-          <div className="num" style={{ color: 'var(--crit)' }}>{hostData === null ? '—' : kev}</div>
+          <div className="num" style={{ color: 'var(--crit)' }}>{demoFindings === null ? '—' : kev}</div>
           <div className="lbl">Known exploited</div>
         </div>
       </div>
@@ -620,19 +659,17 @@ function OverviewPage() {
       <div className="row cols-2">
         <div className="panel">
           <h2>Findings by severity</h2>
-          {hostData === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : (
-            <div className="donutwrap">
-              <svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Severity chart">
-                {circles}
-                <text x="55" y="60" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text)">{hostData.length}</text>
-              </svg>
-              <ul>
-                {SEV.map((level) => (
-                  <li key={level}><span><span className="dot" style={{ background: SEVC[level] }} />{level[0].toUpperCase() + level.slice(1)}</span><b>{sevCounts[level]}</b></li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <div className="donutwrap">
+            <svg width="110" height="110" viewBox="0 0 110 110" role="img" aria-label="Severity chart">
+              {circles}
+              <text x="55" y="60" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--text)">{findingsCount}</text>
+            </svg>
+            <ul>
+              {SEV.map((level) => (
+                <li key={level}><span><span className="dot" style={{ background: SEVC[level] }} />{level[0].toUpperCase() + level.slice(1)}</span><b>{sevCounts[level]}</b></li>
+              ))}
+            </ul>
+          </div>
         </div>
         <div className="panel">
           <h2>Most common services</h2>
@@ -662,8 +699,8 @@ function HostsPage() {
 
   const sorted = [...filtered].sort((a, b) => {
     const key = state.sortKey;
-    const valueA = key === 'ip' ? a.ip : key === 'os' ? a.os ?? '' : key === 'ports' ? a.ports.length : key === 'vulns' ? a.vulns?.length ?? -1 : a.score ?? -1;
-    const valueB = key === 'ip' ? b.ip : key === 'os' ? b.os ?? '' : key === 'ports' ? b.ports.length : key === 'vulns' ? b.vulns?.length ?? -1 : b.score ?? -1;
+    const valueA = key === 'ip' ? a.ip : key === 'os' ? a.os ?? '' : key === 'ports' ? a.ports.length : key === 'vulns' ? getHostFindingCount(a) ?? -1 : a.score ?? -1;
+    const valueB = key === 'ip' ? b.ip : key === 'os' ? b.os ?? '' : key === 'ports' ? b.ports.length : key === 'vulns' ? getHostFindingCount(b) ?? -1 : b.score ?? -1;
     if (typeof valueA === 'string' && typeof valueB === 'string') {
       return valueA.localeCompare(valueB) * state.sortDir;
     }
@@ -707,11 +744,11 @@ function HostsPage() {
                   <td><span className="mono">{host.ip}</span><div className="lbl">{host.hostname ?? host.status}</div></td>
                       <td>{host.os ?? <span className="lbl">Not yet analyzed</span>}</td>
                   <td>{host.ports.length}</td>
-                  <td>{host.vulns === null ? <span className="lbl">Not yet analyzed</span> : host.vulns.length ? (
+                  <td>{getHostFindingCount(host) === null ? <span className="lbl">Not yet analyzed</span> : getHostFindingCount(host) ? (
                     <span className="mini">
-                      {SEV.filter((level) => host.vulns?.some((finding) => finding.sev === level)).map((level) => (
+                      {SEV.filter((level) => getHostSeverityCount(host, level) > 0).map((level) => (
                         <span key={level} style={{ background: SEVC[level], color: level === 'medium' ? '#211800' : '#fff' }}>
-                          {host.vulns?.filter((finding) => finding.sev === level).length}
+                          {getHostSeverityCount(host, level)}
                         </span>
                       ))}
                     </span>
@@ -740,6 +777,9 @@ function HostDetailPage() {
   }
   const rank = host.grade;
   const findings = host.vulns === null ? null : [...host.vulns].sort((a, b) => SEV.indexOf(a.sev) - SEV.indexOf(b.sev) || b.cvss - a.cvss);
+  const cveFindings = host.cves === null ? null : [...host.cves].sort(compareCVEs);
+  const findingCount = cveFindings?.length ?? findings?.length ?? null;
+  const urgentCves = cveFindings?.filter((finding) => severityRank(finding.cve.severity) <= 1).slice(0, 5) ?? null;
 
   return (
     <>
@@ -752,8 +792,8 @@ function HostDetailPage() {
         </div>
       </div>
       <div className="panel" style={{ marginBottom: 16 }}>
-        <h2>{findings === null ? 'Findings' : `Findings (${findings.length})`}</h2>
-        {findings === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findings.length ? (
+        <h2>{findingCount === null ? 'Findings' : `Findings (${findingCount})`}</h2>
+        {findingCount === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findingCount ? (
           <div className="tw">
             <table>
               <thead>
@@ -765,7 +805,18 @@ function HostDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {findings.map((v) => (
+                {cveFindings?.map(({ cve, port, service }) => (
+                  <tr key={`${port}-${cve.cve_id}`}>
+                    <td><span className={`sev s-${cve.severity.toLowerCase()}`}>{cve.severity.toLowerCase()}</span></td>
+                    <td>
+                      <b>{cve.cve_id}</b>
+                      <div className="lbl">{cve.description.length > 160 ? `${cve.description.slice(0, 160)}...` : cve.description}</div>
+                    </td>
+                    <td className="mono">{port} / {service}</td>
+                    <td>{cve.cvss?.toFixed(1) ?? 'N/A'}</td>
+                  </tr>
+                ))}
+                {findings?.map((v) => (
                   <tr key={v.id}>
                     <td><span className={`sev s-${v.sev}`}>{v.sev}</span></td>
                     <td>
@@ -780,7 +831,7 @@ function HostDetailPage() {
               </tbody>
             </table>
           </div>
-        ) : <p className="lbl" style={{ margin: 0 }}>No findings on this host. Its open services match no known issues.</p>}
+        ) : <p className="lbl" style={{ margin: 0 }}>{cveFindings !== null ? 'No known vulnerabilities found for the detected services' : 'No findings on this host. Its open services match no known issues.'}</p>}
       </div>
       <div className="row cols-2">
         <div className="panel">
@@ -809,7 +860,11 @@ function HostDetailPage() {
         </div>
         <div className="panel">
           <h2>What to fix first</h2>
-          {findings === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findings.length ? (
+          {urgentCves !== null ? urgentCves.length ? (
+            <ol className="recs">
+              {urgentCves.map(({ cve, port, service }) => <li key={`fix-${port}-${cve.cve_id}`}>Update {service} ({port}) — {cve.cve_id}, CVSS {cve.cvss?.toFixed(1) ?? 'N/A'}</li>)}
+            </ol>
+          ) : <p className="lbl" style={{ margin: 0 }}>No urgent vulnerabilities found</p> : findings === null ? <p className="lbl" style={{ margin: 0 }}>Not yet analyzed</p> : findings.length ? (
             <ol className="recs">
               {findings.map((v) => <li key={`fix-${v.id}`}>{v.fix}</li>)}
             </ol>
