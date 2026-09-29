@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import CVE, Host, Port, Scan, ScanCreateRequest
+from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary
 from app.scanner.discovery import run_discovery
 from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
@@ -76,6 +76,22 @@ def create_scan(request: ScanCreateRequest, background_tasks: BackgroundTasks) -
     scans[scan.id] = scan
     background_tasks.add_task(discover_scan_hosts, scan.id, scan.cidr)
     return scan
+
+
+@app.get('/scans', response_model=list[ScanSummary])
+def list_scans() -> list[ScanSummary]:
+    return [
+        ScanSummary(
+            id=scan.id,
+            cidr=scan.cidr,
+            status=scan.status,
+            created_at=scan.created_at,
+            network_score=scan.network_score,
+            network_grade=scan.network_grade,
+            host_count=len(scan.hosts),
+        )
+        for scan in sorted(scans.values(), key=lambda item: item.created_at, reverse=True)
+    ]
 
 
 @app.get('/scans/{scan_id}', response_model=Scan)

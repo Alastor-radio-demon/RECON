@@ -38,6 +38,16 @@ export interface Scan {
   network_grade: string | null;
 }
 
+export interface ScanSummary {
+  id: string;
+  cidr: string;
+  status: ScanStatus;
+  created_at: string;
+  network_score: number | null;
+  network_grade: string | null;
+  host_count: number;
+}
+
 declare global {
   interface ImportMetaEnv {
     readonly VITE_API_URL?: string;
@@ -79,6 +89,14 @@ export async function createScan(cidr: string, authorized: boolean): Promise<Sca
   }
 
   return response.json() as Promise<Scan>;
+}
+
+export async function listScans(): Promise<ScanSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/scans`);
+
+  if (!response.ok) throw new Error('Request failed');
+
+  return response.json() as Promise<ScanSummary[]>;
 }
 
 export async function getScan(id: string): Promise<Scan> {

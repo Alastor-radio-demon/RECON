@@ -43,6 +43,16 @@ class Scan(BaseModel):
     network_grade: str | None = None
 
 
+class ScanSummary(BaseModel):
+    id: UUID
+    cidr: str
+    status: Literal['pending', 'discovering', 'completed', 'failed']
+    created_at: datetime
+    network_score: int | None = None
+    network_grade: str | None = None
+    host_count: int
+
+
 class ScanCreateRequest(BaseModel):
     cidr: str
     authorized: bool

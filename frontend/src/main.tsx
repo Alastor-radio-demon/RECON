@@ -2,8 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import './styles/recon.css';
-import { HOSTS, HISTORY, grade, GC, SEV, SEVC, type Finding, type Severity } from './data/demo';
-import { createScan, getScan, type CVE, type Scan } from './lib/api';
+import { HOSTS, grade, GC, SEV, SEVC, type Finding, type Severity } from './data/demo';
+import { createScan, getScan, listScans, type CVE, type Scan, type ScanSummary } from './lib/api';
 
 const NAV = [
   ['scan', 'Scan'],
@@ -883,11 +883,64 @@ function HostDetailPage() {
 
 function HistoryPage() {
   const navigate = useNavigate();
+  const state = useAppState();
+  const [scans, setScans] = React.useState<ScanSummary[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+  const [openingId, setOpeningId] = React.useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  React.useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    listScans()
+      .then((results) => { if (active) setScans(results); })
+      .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : 'Could not load scan history.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [refreshKey]);
+
+  const openScan = async (id: string) => {
+    setOpeningId(id);
+    setError('');
+    try {
+      const scan = await getScan(id);
+      state.setScan(scan);
+      state.setCidr(scan.cidr);
+      state.setLoaded(true);
+      navigate('/overview');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load scan details.');
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
   return (
     <>
       <h1>Scan history</h1>
       <p className="sub">Earlier scans, newest first. Open one to review its results.</p>
+      {error && <p className="lbl" role="alert">{error}</p>}
+      {loading ? (
+        <div className="panel empty"><h2>Loading scans</h2></div>
+      ) : error && !scans.length ? (
+        <div className="panel empty">
+          <h2>Could not load scan history</h2>
+          <p>{error}</p>
+          <div className="actions" style={{ justifyContent: 'center' }}>
+            <button className="btn" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button>
+          </div>
+        </div>
+      ) : !scans.length ? (
+        <div className="panel empty">
+          <h2>No scans yet</h2>
+          <p>Start a scan to see its results here.</p>
+          <div className="actions" style={{ justifyContent: 'center' }}>
+            <button className="btn" onClick={() => navigate('/')}>Start a scan</button>
+          </div>
+        </div>
+      ) : (
       <div className="panel">
         <div className="tw">
           <table>
@@ -896,28 +949,40 @@ function HistoryPage() {
                 <th>Started</th>
                 <th>Range</th>
                 <th>Hosts</th>
-                <th>Findings</th>
+                <th>Status</th>
                 <th>Grade</th>
-                <th>Duration</th>
+                <th>Score</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {HISTORY.map((row, index) => (
-                <tr key={`${row.when}-${row.cidr}`}>
-                  <td>{row.when}</td>
-                  <td className="mono">{row.cidr}</td>
-                  <td>{row.hosts}</td>
-                  <td>{row.find}</td>
-                  <td>{G(row.g)}</td>
-                  <td>{row.dur}</td>
-                  <td>{index === 0 ? <button className="btn ghost" onClick={() => navigate('/overview')}>Open</button> : <span className="lbl">Archived</span>}</td>
+              {scans.map((scan) => (
+                <tr
+                  className="click"
+                  tabIndex={0}
+                  key={scan.id}
+                  onClick={() => { void openScan(scan.id); }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      void openScan(scan.id);
+                    }
+                  }}
+                >
+                  <td>{new Date(scan.created_at).toLocaleString()}</td>
+                  <td className="mono">{scan.cidr}</td>
+                  <td>{scan.host_count}</td>
+                  <td>{scan.status}</td>
+                  <td>{scan.network_grade ? G(scan.network_grade) : <span className="lbl">Not scored</span>}</td>
+                  <td>{scan.network_score ?? '—'}</td>
+                  <td><button className="btn ghost" disabled={openingId === scan.id} onClick={(event) => { event.stopPropagation(); void openScan(scan.id); }}>{openingId === scan.id ? 'Loading' : 'Open'}</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+      )}
     </>
   );
 }
