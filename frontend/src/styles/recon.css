@@ -103,6 +103,13 @@ th button{background:none;border:0;padding:0;font-weight:600;color:inherit}
 th button:hover{color:var(--text)}
 tbody tr.click{cursor:pointer}
 tbody tr.click:hover{background:var(--cell)}
+.cve-modal-backdrop{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;background:rgba(0,0,0,.55)}
+.cve-modal{width:min(100%,620px);max-height:90vh;overflow:auto;box-shadow:0 16px 40px rgba(0,0,0,.28)}
+.cve-modal-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.cve-modal-heading h2{margin:0;overflow-wrap:anywhere}
+.cve-modal-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0}
+.cve-modal-meta .mono{color:var(--muted)}
+.cve-finding-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .tools{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .tools input{flex:1;min-width:180px}.tools select{width:auto}
 .sev{display:inline-block;min-width:66px;text-align:center;padding:1px 8px;border-radius:5px;font-size:12px;font-weight:700;color:#fff}

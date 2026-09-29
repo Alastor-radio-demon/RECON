@@ -770,8 +770,43 @@ function HostDetailPage() {
   const navigate = useNavigate();
   const { n } = useParams();
   const state = useAppState();
+  const [selectedCve, setSelectedCve] = React.useState<HostCVE | null>(null);
+  const modalRef = React.useRef<HTMLDivElement | null>(null);
+  const triggerRowRef = React.useRef<HTMLTableRowElement | null>(null);
   const hostId = n ?? state.host;
   const host = getDisplayHosts(state.scan, state.cidr).find((item) => item.key === hostId || item.ip === hostId);
+
+  React.useEffect(() => {
+    if (!selectedCve) return;
+
+    const modal = modalRef.current;
+    const focusable = modal?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]');
+    focusable?.[0]?.focus();
+
+    const close = () => {
+      setSelectedCve(null);
+      triggerRowRef.current?.focus();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      } else if (event.key === 'Tab' && focusable?.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selectedCve]);
+
   if (!host) {
     return <div className="panel empty"><h2>Host not found</h2></div>;
   }
@@ -806,7 +841,23 @@ function HostDetailPage() {
               </thead>
               <tbody>
                 {cveFindings?.map(({ cve, port, service }) => (
-                  <tr key={`${port}-${cve.cve_id}`}>
+                  <tr
+                    className="click cve-finding-row"
+                    tabIndex={0}
+                    aria-haspopup="dialog"
+                    key={`${port}-${cve.cve_id}`}
+                    onClick={(event) => {
+                      triggerRowRef.current = event.currentTarget;
+                      setSelectedCve({ cve, port, service });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        triggerRowRef.current = event.currentTarget;
+                        setSelectedCve({ cve, port, service });
+                      }
+                    }}
+                  >
                     <td><span className={`sev s-${cve.severity.toLowerCase()}`}>{cve.severity.toLowerCase()}</span></td>
                     <td>
                       <b>{cve.cve_id}</b>
@@ -877,6 +928,46 @@ function HostDetailPage() {
           ) : <p className="lbl" style={{ margin: 0 }}>No risk factors found</p>}
         </div>
       </div>
+      {selectedCve && (
+        <div
+          className="cve-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setSelectedCve(null);
+              triggerRowRef.current?.focus();
+            }
+          }}
+        >
+          <div
+            className="panel cve-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cve-modal-title"
+            ref={modalRef}
+            tabIndex={-1}
+          >
+            <div className="cve-modal-heading">
+              <h2 id="cve-modal-title" className="mono">{selectedCve.cve.cve_id}</h2>
+              <button className="btn ghost" type="button" onClick={() => {
+                setSelectedCve(null);
+                triggerRowRef.current?.focus();
+              }}>Close</button>
+            </div>
+            <div className="cve-modal-meta">
+              <span className={`sev s-${selectedCve.cve.severity.toLowerCase()}`}>{selectedCve.cve.severity.toLowerCase()}</span>
+              <span>CVSS {selectedCve.cve.cvss?.toFixed(1) ?? 'N/A'}</span>
+              <span className="mono">Port {selectedCve.port} / {selectedCve.service}</span>
+            </div>
+            <p>{selectedCve.cve.description}</p>
+            <a
+              className="btn ghost"
+              href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(selectedCve.cve.cve_id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >View on NVD</a>
+          </div>
+        </div>
+      )}
     </>
   );
 }
