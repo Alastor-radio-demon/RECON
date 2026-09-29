@@ -7,3 +7,4 @@ __pycache__/
 tsconfig.tsbuildinfo
 tsconfig.node.tsbuildinfo
 "@ | Out-File -Encoding ascii .gitignore
+backend/data/
