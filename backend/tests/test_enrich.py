@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 from typing import Any
 
@@ -107,7 +108,7 @@ async def test_lookup_cves_parses_mocked_nvd_response_and_caches_result(
         },
         {
             'cve_id': 'CVE-2024-67890',
-            'description': 'B' * 200,
+            'description': 'B' * 240,
             'cvss': 6.5,
             'severity': 'medium',
         },
@@ -122,6 +123,12 @@ async def test_lookup_cves_parses_mocked_nvd_response_and_caches_result(
     assert await enrich.lookup_cves('OpenSSH', '9.6') == expected
     assert await enrich.lookup_cves('OpenSSH', '9.6') == expected
     assert len(calls) == 1
+    with sqlite3.connect(enrich.CACHE_DB_PATH) as connection:
+        stored_cves = json.loads(connection.execute(
+            'SELECT cves FROM cve_cache WHERE product = ? AND version = ?',
+            ('OpenSSH', '9.6'),
+        ).fetchone()[0])
+    assert stored_cves[1]['description'] == 'B' * 240
     assert calls[0] == {
         'url': enrich.NVD_API_URL,
         'params': {'keywordSearch': 'OpenSSH 9.6', 'resultsPerPage': 5},

@@ -81,7 +81,7 @@ def _parse_nvd_response(data: Any) -> list[dict[str, Any]]:
         results.append(
             {
                 'cve_id': cve['id'],
-                'description': description[:200],
+                'description': description,
                 'cvss': cvss,
                 'severity': _severity_for_cvss(cvss),
             }
