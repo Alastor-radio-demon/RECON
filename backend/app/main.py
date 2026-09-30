@@ -6,11 +6,12 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary
+from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary, VulnScriptFinding
 from app.scanner.discovery import run_discovery
 from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
 from app.scanner.scoring import score_host, score_network
+from app.scanner.vulnscan import run_vulnscan
 from app.scope import validate_cidr
 
 
@@ -36,12 +37,18 @@ async def scan_host(host: Host) -> None:
             host.ports = [Port(**port) for port in result['ports']]
         except Exception:
             logger.exception('Port scan failed for host %s', host.ip)
+        try:
+            host.score, host.grade, host.risk_reasons = score_host(host)
+            for port in host.ports:
+                if port.product and port.version:
+                    port.cves = [CVE(**cve) for cve in await lookup_cves(port.product, port.version)]
+            try:
+                findings = await asyncio.to_thread(run_vulnscan, host.ip)
+                host.vuln_findings = [VulnScriptFinding(**finding) for finding in findings]
+            except Exception:
+                logger.exception('Nmap vulnerability scan failed for host %s', host.ip)
         finally:
             host.status = 'done'
-        host.score, host.grade, host.risk_reasons = score_host(host)
-        for port in host.ports:
-            if port.product and port.version:
-                port.cves = [CVE(**cve) for cve in await lookup_cves(port.product, port.version)]
 
 
 async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:

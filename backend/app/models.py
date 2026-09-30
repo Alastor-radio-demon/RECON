@@ -22,11 +22,20 @@ class Port(BaseModel):
     cves: list[CVE] = Field(default_factory=list)
 
 
+class VulnScriptFinding(BaseModel):
+    script_id: str
+    port: int | None
+    output: str
+    cve_ids: list[str]
+    state: str
+
+
 class Host(BaseModel):
     ip: str
     hostname: str | None = None
     status: Literal['pending', 'scanning', 'done'] = 'pending'
     ports: list[Port] = Field(default_factory=list)
+    vuln_findings: list[VulnScriptFinding] = Field(default_factory=list)
     score: int | None = None
     grade: str | None = None
     risk_reasons: list[str] = Field(default_factory=list)
