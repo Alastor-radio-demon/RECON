@@ -30,12 +30,23 @@ class VulnScriptFinding(BaseModel):
     state: str
 
 
+class WebFinding(BaseModel):
+    template_id: str
+    name: str
+    severity: str
+    description: str | None = None
+    matched_at: str
+    reference: list[str] = Field(default_factory=list)
+    cve_ids: list[str] = Field(default_factory=list)
+
+
 class Host(BaseModel):
     ip: str
     hostname: str | None = None
     status: Literal['pending', 'scanning', 'done'] = 'pending'
     ports: list[Port] = Field(default_factory=list)
     vuln_findings: list[VulnScriptFinding] = Field(default_factory=list)
+    web_findings: list[WebFinding] = Field(default_factory=list)
     score: int | None = None
     grade: str | None = None
     risk_reasons: list[str] = Field(default_factory=list)

@@ -6,12 +6,13 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary, VulnScriptFinding
+from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary, VulnScriptFinding, WebFinding
 from app.scanner.discovery import run_discovery
 from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
 from app.scanner.scoring import score_host, score_network
 from app.scanner.vulnscan import run_vulnscan
+from app.scanner.webscan import run_nuclei
 from app.scope import validate_cidr
 
 
@@ -49,6 +50,22 @@ async def scan_host(host: Host) -> None:
                 host.vuln_findings = [VulnScriptFinding(**finding) for finding in findings]
             except Exception:
                 logger.exception('Nmap vulnerability scan failed for host %s', host.ip)
+
+            for port in host.ports:
+                service = port.service.lower()
+                product = (port.product or '').lower()
+                if service not in ('http', 'https', 'http-proxy') and not any(
+                    marker in product for marker in ('apache', 'nginx', 'http')
+                ):
+                    continue
+
+                scheme = 'https' if port.port in (443, 8443) else 'http'
+                target_url = f'{scheme}://{host.ip}:{port.port}'
+                try:
+                    findings = await asyncio.to_thread(run_nuclei, target_url)
+                    host.web_findings.extend(WebFinding(**finding) for finding in findings)
+                except Exception:
+                    logger.exception('Nuclei web scan failed for %s', target_url)
         finally:
             host.status = 'done'
 
