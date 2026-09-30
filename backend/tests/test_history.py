@@ -1,10 +1,12 @@
+import asyncio
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import config, main
-from app.models import Host
+from app.models import Host, Scan
 
 
 def test_list_scans_returns_summaries_newest_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,3 +69,35 @@ def test_list_scans_returns_summaries_newest_first(monkeypatch: pytest.MonkeyPat
             'host_count': 1,
         },
     ]
+
+
+def test_vulnscan_timeout_finishes_host_before_completing_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scan_id = uuid4()
+    scan = Scan(
+        id=scan_id,
+        cidr='192.168.1.0/24',
+        status='discovering',
+        created_at=datetime.now(timezone.utc),
+    )
+    monkeypatch.setattr(main, 'scans', {scan_id: scan})
+    monkeypatch.setattr(main, 'run_discovery', lambda _: [{'ip': '192.168.1.10', 'hostname': None}])
+    monkeypatch.setattr(main, 'run_portscan', lambda _: {'ports': []})
+    scan_status_during_vulnscan: list[str] = []
+
+    def timeout_vulnscan(_: str) -> list[dict]:
+        scan_status_during_vulnscan.append(scan.status)
+        raise RuntimeError('Nmap vulnerability scan timed out for 192.168.1.10.')
+
+    monkeypatch.setattr(main, 'run_vulnscan', timeout_vulnscan)
+
+    asyncio.run(main.discover_scan_hosts(scan_id, scan.cidr))
+
+    assert scan_status_during_vulnscan == ['discovering']
+    assert scan.status == 'completed'
+    assert scan.hosts[0].status == 'done'
+    assert scan.hosts[0].vuln_findings == []
+    assert (scan.network_score, scan.network_grade) == (100, 'A')
+    assert 'Nmap vulnerability scan failed for host 192.168.1.10' in caplog.text

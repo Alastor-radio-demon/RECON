@@ -33,15 +33,17 @@ async def scan_host(host: Host) -> None:
     async with portscan_semaphore:
         host.status = 'scanning'
         try:
-            result = await asyncio.to_thread(run_portscan, host.ip)
-            host.ports = [Port(**port) for port in result['ports']]
-        except Exception:
-            logger.exception('Port scan failed for host %s', host.ip)
-        try:
+            try:
+                result = await asyncio.to_thread(run_portscan, host.ip)
+                host.ports = [Port(**port) for port in result['ports']]
+            except Exception:
+                logger.exception('Port scan failed for host %s', host.ip)
+
             host.score, host.grade, host.risk_reasons = score_host(host)
             for port in host.ports:
                 if port.product and port.version:
                     port.cves = [CVE(**cve) for cve in await lookup_cves(port.product, port.version)]
+
             try:
                 findings = await asyncio.to_thread(run_vulnscan, host.ip)
                 host.vuln_findings = [VulnScriptFinding(**finding) for finding in findings]
@@ -59,9 +61,11 @@ async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
             Host(ip=host['ip'], hostname=host['hostname'])
             for host in discovered_hosts
         ]
-        scan.status = 'completed'
         await asyncio.gather(*(scan_host(host) for host in scan.hosts))
         scan.network_score, scan.network_grade = score_network(scan.hosts)
+        if any(host.status != 'done' for host in scan.hosts):
+            raise RuntimeError('Scan host tasks completed without finishing every host.')
+        scan.status = 'completed'
     except Exception as exc:
         scan.status = 'failed'
         scan.error = str(exc)
