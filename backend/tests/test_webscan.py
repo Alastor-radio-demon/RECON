@@ -46,3 +46,20 @@ def test_run_nuclei_skips_when_binary_is_missing_and_warns_once(
     assert webscan.run_nuclei('http://192.0.2.10:80') == []
     assert webscan.run_nuclei('http://192.0.2.11:80') == []
     assert caplog.text.count('Nuclei was not found on PATH') == 1
+
+
+def test_run_nuclei_sets_concurrency_and_rate_limit(monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    class CompletedProcess:
+        stdout = ''
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return CompletedProcess()
+
+    monkeypatch.setattr(webscan.subprocess, 'run', fake_run)
+
+    assert webscan.run_nuclei('http://192.0.2.10:80') == []
+    assert commands[0][commands[0].index('-c') + 1] == '25'
+    assert commands[0][commands[0].index('-rl') + 1] == '150'

@@ -50,7 +50,7 @@ def parse_vulnscan_xml(xml_output: str) -> list[dict[str, int | str | None | lis
 def run_vulnscan(ip: str) -> list[dict[str, int | str | None | list[str]]]:
     try:
         result = subprocess.run(
-            ['nmap', '--script', 'vuln', '-oX', '-', ip],
+            ['nmap', '-T4', '--script', 'vuln', '--script-timeout', '60s', '-oX', '-', ip],
             capture_output=True,
             text=True,
             timeout=180,

@@ -57,6 +57,7 @@ class Scan(BaseModel):
     cidr: str
     target_type: Literal['cidr', 'url'] = 'cidr'
     original_target: str | None = None
+    depth: Literal['quick', 'full'] = 'full'
     status: Literal['pending', 'discovering', 'completed', 'failed']
     created_at: datetime
     hosts: list[Host] = Field(default_factory=list)
@@ -70,6 +71,7 @@ class ScanSummary(BaseModel):
     cidr: str
     target_type: Literal['cidr', 'url'] = 'cidr'
     original_target: str | None = None
+    depth: Literal['quick', 'full'] = 'full'
     status: Literal['pending', 'discovering', 'completed', 'failed']
     created_at: datetime
     network_score: int | None = None
@@ -80,3 +82,4 @@ class ScanSummary(BaseModel):
 class ScanCreateRequest(BaseModel):
     cidr: str
     authorized: bool
+    depth: Literal['quick', 'full'] = 'full'

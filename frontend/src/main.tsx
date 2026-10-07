@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import './styles/recon.css';
 import { HOSTS, grade, GC, SEV, SEVC, type Finding, type Severity } from './data/demo';
-import { createScan, getScan, listScans, type CVE, type Scan, type ScanSummary } from './lib/api';
+import { createScan, getScan, getScanReportUrl, listScans, type CVE, type Scan, type ScanSummary } from './lib/api';
 
 const NAV = [
   ['scan', 'Scan'],
@@ -622,6 +622,15 @@ function OverviewPage() {
       <h1>Network overview</h1>
       <p className="sub">{displayTarget}{state.scan ? ` · scanned ${new Date(state.scan.created_at).toLocaleString()}` : ''}. Select a square or a host to see its details.</p>
       <div className="demo">{isRealScan ? 'Real scan results. Risk analysis is not yet available.' : 'Showing demo data. Nothing here came from a real scan.'}</div>
+      {scan && (
+        <div className="actions">
+          {scan.status === 'completed' ? (
+            <a className="btn" href={getScanReportUrl(scan.id)} target="_blank" rel="noopener noreferrer">Download PDF Report</a>
+          ) : (
+            <button className="btn" type="button" disabled>Download PDF Report</button>
+          )}
+        </div>
+      )}
       <div className="top">
         <div>
           <span className={rank ? `grade g-${rank}` : 'grade'} aria-label={rank ? `Network grade ${rank}` : 'Grade not yet analyzed'}>{rank ?? '—'}</span>

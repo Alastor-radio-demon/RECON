@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary, VulnScriptFinding, WebFinding
+from app.reporting.pdf_report import build_report
 from app.scanner.discovery import run_discovery
 from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
@@ -30,7 +32,7 @@ portscan_semaphore = asyncio.Semaphore(5)
 logger = logging.getLogger(__name__)
 
 
-async def scan_host(host: Host) -> None:
+async def scan_host(host: Host, depth: str = 'full') -> None:
     async with portscan_semaphore:
         host.status = 'scanning'
         try:
@@ -45,12 +47,7 @@ async def scan_host(host: Host) -> None:
                 if port.product and port.version:
                     port.cves = [CVE(**cve) for cve in await lookup_cves(port.product, port.version)]
 
-            try:
-                findings = await asyncio.to_thread(run_vulnscan, host.ip)
-                host.vuln_findings = [VulnScriptFinding(**finding) for finding in findings]
-            except Exception:
-                logger.exception('Nmap vulnerability scan failed for host %s', host.ip)
-
+            target_urls = []
             for port in host.ports:
                 service = port.service.lower()
                 product = (port.product or '').lower()
@@ -60,12 +57,31 @@ async def scan_host(host: Host) -> None:
                     continue
 
                 scheme = 'https' if port.port in (443, 8443) else 'http'
-                target_url = f'{scheme}://{host.ip}:{port.port}'
-                try:
-                    findings = await asyncio.to_thread(run_nuclei, target_url)
-                    host.web_findings.extend(WebFinding(**finding) for finding in findings)
-                except Exception:
-                    logger.exception('Nuclei web scan failed for %s', target_url)
+                target_urls.append(f'{scheme}://{host.ip}:{port.port}')
+
+            if depth == 'full':
+                scan_results = await asyncio.gather(
+                    asyncio.to_thread(run_vulnscan, host.ip),
+                    *(asyncio.to_thread(run_nuclei, target_url) for target_url in target_urls),
+                    return_exceptions=True,
+                )
+                vuln_result = scan_results[0]
+                if isinstance(vuln_result, Exception):
+                    logger.error('Nmap vulnerability scan failed for host %s: %s', host.ip, vuln_result)
+                else:
+                    try:
+                        host.vuln_findings = [VulnScriptFinding(**finding) for finding in vuln_result]
+                    except Exception:
+                        logger.exception('Nmap vulnerability scan returned invalid findings for host %s', host.ip)
+
+                for target_url, nuclei_result in zip(target_urls, scan_results[1:]):
+                    if isinstance(nuclei_result, Exception):
+                        logger.error('Nuclei web scan failed for %s: %s', target_url, nuclei_result)
+                        continue
+                    try:
+                        host.web_findings.extend(WebFinding(**finding) for finding in nuclei_result)
+                    except Exception:
+                        logger.exception('Nuclei web scan returned invalid findings for %s', target_url)
         finally:
             host.status = 'done'
 
@@ -78,7 +94,7 @@ async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
             Host(ip=host['ip'], hostname=host['hostname'])
             for host in discovered_hosts
         ]
-        await asyncio.gather(*(scan_host(host) for host in scan.hosts))
+        await asyncio.gather(*(scan_host(host, scan.depth) for host in scan.hosts))
         scan.network_score, scan.network_grade = score_network(scan.hosts)
         if any(host.status != 'done' for host in scan.hosts):
             raise RuntimeError('Scan host tasks completed without finishing every host.')
@@ -92,7 +108,7 @@ async def scan_single_host(scan_id: UUID, ip: str) -> None:
     scan = scans[scan_id]
     try:
         scan.hosts = [Host(ip=ip)]
-        await scan_host(scan.hosts[0])
+        await scan_host(scan.hosts[0], scan.depth)
         scan.network_score, scan.network_grade = score_network(scan.hosts)
         if any(host.status != 'done' for host in scan.hosts):
             raise RuntimeError('Scan host tasks completed without finishing every host.')
@@ -121,6 +137,7 @@ def create_scan(request: ScanCreateRequest, background_tasks: BackgroundTasks) -
         cidr=cidr,
         target_type=target['type'],
         original_target=request.cidr,
+        depth=request.depth,
         status='discovering',
         created_at=datetime.now(timezone.utc),
     )
@@ -140,6 +157,7 @@ def list_scans() -> list[ScanSummary]:
             cidr=scan.cidr,
             target_type=scan.target_type,
             original_target=scan.original_target,
+            depth=scan.depth,
             status=scan.status,
             created_at=scan.created_at,
             network_score=scan.network_score,
@@ -156,3 +174,21 @@ def get_scan(scan_id: UUID) -> Scan:
     if scan is None:
         raise HTTPException(status_code=404, detail='Scan not found.')
     return scan
+
+
+@app.get('/scans/{scan_id}/report.pdf')
+def get_scan_report(scan_id: UUID) -> Response:
+    scan = scans.get(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail='Scan not found.')
+    if scan.status != 'completed':
+        raise HTTPException(
+            status_code=409,
+            detail='Scan not finished - report unavailable until status is completed.',
+        )
+
+    return Response(
+        content=build_report(scan),
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="recon-report-{scan_id}.pdf"'},
+    )

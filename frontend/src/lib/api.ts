@@ -64,6 +64,10 @@ declare global {
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
+export function getScanReportUrl(id: string): string {
+  return `${API_BASE_URL}/scans/${encodeURIComponent(id)}/report.pdf`;
+}
+
 async function responseError(response: Response): Promise<Error> {
   try {
     const body: unknown = await response.json();

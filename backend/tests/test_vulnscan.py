@@ -1,5 +1,6 @@
 import pytest
 
+from app.scanner import vulnscan
 from app.scanner.vulnscan import parse_vulnscan_xml
 
 
@@ -43,3 +44,21 @@ def test_parse_vulnscan_xml_extracts_vulnerable_finding_and_cves() -> None:
 def test_parse_vulnscan_xml_raises_for_invalid_xml() -> None:
     with pytest.raises(RuntimeError, match='invalid XML'):
         parse_vulnscan_xml('<nmaprun>')
+
+
+def test_run_vulnscan_uses_faster_timing_and_per_script_timeout(monkeypatch) -> None:
+  commands: list[list[str]] = []
+
+  class CompletedProcess:
+    stdout = '<nmaprun />'
+
+  def fake_run(command, **kwargs):
+    commands.append(command)
+    return CompletedProcess()
+
+  monkeypatch.setattr(vulnscan.subprocess, 'run', fake_run)
+
+  assert vulnscan.run_vulnscan('192.0.2.10') == []
+  assert commands == [[
+    'nmap', '-T4', '--script', 'vuln', '--script-timeout', '60s', '-oX', '-', '192.0.2.10',
+  ]]

@@ -88,7 +88,7 @@ def run_nuclei(target_url: str) -> list[dict[str, str | None | list[str]]]:
         result = subprocess.run(
             [
                 'nuclei', '-u', target_url, '-jsonl', '-silent',
-                '-severity', 'low,medium,high,critical',
+                '-severity', 'low,medium,high,critical', '-c', '25', '-rl', '150',
             ],
             capture_output=True,
             text=True,
