@@ -55,6 +55,8 @@ class Host(BaseModel):
 class Scan(BaseModel):
     id: UUID
     cidr: str
+    target_type: Literal['cidr', 'url'] = 'cidr'
+    original_target: str | None = None
     status: Literal['pending', 'discovering', 'completed', 'failed']
     created_at: datetime
     hosts: list[Host] = Field(default_factory=list)
@@ -66,6 +68,8 @@ class Scan(BaseModel):
 class ScanSummary(BaseModel):
     id: UUID
     cidr: str
+    target_type: Literal['cidr', 'url'] = 'cidr'
+    original_target: str | None = None
     status: Literal['pending', 'discovering', 'completed', 'failed']
     created_at: datetime
     network_score: int | None = None

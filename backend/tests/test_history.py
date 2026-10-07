@@ -53,6 +53,8 @@ def test_list_scans_returns_summaries_newest_first(monkeypatch: pytest.MonkeyPat
         {
             'id': second_response.json()['id'],
             'cidr': '192.168.1.0/24',
+            'target_type': 'cidr',
+            'original_target': '192.168.1.0/24',
             'status': 'completed',
             'created_at': '2026-09-29T10:01:00Z',
             'network_score': 80,
@@ -62,6 +64,8 @@ def test_list_scans_returns_summaries_newest_first(monkeypatch: pytest.MonkeyPat
         {
             'id': first_response.json()['id'],
             'cidr': '192.168.1.0/24',
+            'target_type': 'cidr',
+            'original_target': '192.168.1.0/24',
             'status': 'completed',
             'created_at': '2026-09-29T10:00:00Z',
             'network_score': 80,
@@ -101,3 +105,27 @@ def test_vulnscan_timeout_finishes_host_before_completing_scan(
     assert scan.hosts[0].vuln_findings == []
     assert (scan.network_score, scan.network_grade) == (100, 'A')
     assert 'Nmap vulnerability scan failed for host 192.168.1.10' in caplog.text
+
+
+def test_url_scan_skips_discovery_and_scans_resolved_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config.settings, 'lab_mode', False)
+    monkeypatch.setattr(main, 'scans', {})
+    monkeypatch.setattr('app.scope.socket.gethostbyname', lambda _: '8.8.8.8')
+    monkeypatch.setattr(main, 'run_discovery', lambda _: pytest.fail('URL scans must skip discovery'))
+    monkeypatch.setattr(main, 'run_portscan', lambda _: {'ports': []})
+    monkeypatch.setattr(main, 'run_vulnscan', lambda _: [])
+
+    with TestClient(main.app) as client:
+        response = client.post(
+            '/scans',
+            json={'cidr': 'https://example.com/path', 'authorized': True},
+        )
+        scan_response = client.get(f"/scans/{response.json()['id']}")
+
+    assert response.status_code == 201
+    assert response.json()['target_type'] == 'url'
+    assert response.json()['original_target'] == 'https://example.com/path'
+    assert scan_response.json()['cidr'] == '8.8.8.8/32'
+    assert scan_response.json()['status'] == 'completed'
+    assert scan_response.json()['hosts'][0]['ip'] == '8.8.8.8'
+    assert scan_response.json()['hosts'][0]['status'] == 'done'

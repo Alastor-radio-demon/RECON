@@ -13,7 +13,7 @@ from app.scanner.portscan import run_portscan
 from app.scanner.scoring import score_host, score_network
 from app.scanner.vulnscan import run_vulnscan
 from app.scanner.webscan import run_nuclei
-from app.scope import validate_cidr
+from app.scope import classify_target, validate_cidr
 
 
 app = FastAPI(title='RECON API')
@@ -88,21 +88,47 @@ async def discover_scan_hosts(scan_id: UUID, cidr: str) -> None:
         scan.error = str(exc)
 
 
+async def scan_single_host(scan_id: UUID, ip: str) -> None:
+    scan = scans[scan_id]
+    try:
+        scan.hosts = [Host(ip=ip)]
+        await scan_host(scan.hosts[0])
+        scan.network_score, scan.network_grade = score_network(scan.hosts)
+        if any(host.status != 'done' for host in scan.hosts):
+            raise RuntimeError('Scan host tasks completed without finishing every host.')
+        scan.status = 'completed'
+    except Exception as exc:
+        scan.status = 'failed'
+        scan.error = str(exc)
+
+
 @app.post('/scans', response_model=Scan, status_code=201)
 def create_scan(request: ScanCreateRequest, background_tasks: BackgroundTasks) -> Scan:
     try:
-        network = validate_cidr(request.cidr, request.authorized)
+        target = classify_target(request.cidr)
+        if target['type'] == 'cidr':
+            network = validate_cidr(request.cidr, request.authorized)
+        else:
+            if not request.authorized:
+                raise ValueError('You must confirm that you are authorized to scan this network.')
+            network = None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    cidr = str(network) if network is not None else f"{target['resolved_ip']}/32"
     scan = Scan(
         id=uuid4(),
-        cidr=str(network),
+        cidr=cidr,
+        target_type=target['type'],
+        original_target=request.cidr,
         status='discovering',
         created_at=datetime.now(timezone.utc),
     )
     scans[scan.id] = scan
-    background_tasks.add_task(discover_scan_hosts, scan.id, scan.cidr)
+    if target['type'] == 'cidr':
+        background_tasks.add_task(discover_scan_hosts, scan.id, scan.cidr)
+    else:
+        background_tasks.add_task(scan_single_host, scan.id, target['resolved_ip'])
     return scan
 
 
@@ -112,6 +138,8 @@ def list_scans() -> list[ScanSummary]:
         ScanSummary(
             id=scan.id,
             cidr=scan.cidr,
+            target_type=scan.target_type,
+            original_target=scan.original_target,
             status=scan.status,
             created_at=scan.created_at,
             network_score=scan.network_score,

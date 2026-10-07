@@ -157,6 +157,15 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
   }));
 }
 
+function isPlausibleDomainOrUrl(value: string): boolean {
+  const hasSupportedScheme = /^https?:\/\//i.test(value);
+  if (value.includes('://') && !hasSupportedScheme) return false;
+
+  const withoutScheme = value.replace(/^https?:\/\//i, '');
+  const hostname = withoutScheme.split(/[/?#]/, 1)[0];
+  return !/\s/.test(value) && hostname.includes('.');
+}
+
 function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -331,23 +340,25 @@ function ScanPage() {
   const handleStart = async () => {
     const value = (document.getElementById('cidr') as HTMLInputElement | null)?.value.trim() ?? '';
     const match = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
-    if (!match) {
-      setError('Enter a range like 192.168.1.0/24.');
+    if (!match && !isPlausibleDomainOrUrl(value)) {
+      setError('Enter a CIDR range like 192.168.1.0/24 or a domain/URL like example.com.');
       return;
     }
-    const octets = match.slice(1, 5).map(Number);
-    const prefix = Number(match[5]);
-    if (octets.some((n) => n > 255) || prefix > 32) {
-      setError('That address is not valid. Each part must be 0 to 255.');
-      return;
-    }
-    if (prefix < 24) {
-      setError('Ranges larger than /24 are blocked in this version. Try a /24 or smaller.');
-      return;
-    }
-    if (octets[0] === 127 || octets[0] >= 224 || (octets[0] === 169 && octets[1] === 254)) {
-      setError('Loopback, multicast, and link-local ranges cannot be scanned.');
-      return;
+    if (match) {
+      const octets = match.slice(1, 5).map(Number);
+      const prefix = Number(match[5]);
+      if (octets.some((n) => n > 255) || prefix > 32) {
+        setError('That address is not valid. Each part must be 0 to 255.');
+        return;
+      }
+      if (prefix < 24) {
+        setError('Ranges larger than /24 are blocked in this version. Try a /24 or smaller.');
+        return;
+      }
+      if (octets[0] === 127 || octets[0] >= 224 || (octets[0] === 169 && octets[1] === 254)) {
+        setError('Loopback, multicast, and link-local ranges cannot be scanned.');
+        return;
+      }
     }
     state.setCidr(value);
     state.setScan(null);
@@ -355,7 +366,7 @@ function ScanPage() {
     setProgress(0);
     setFound(0);
     setBlips([]);
-    setLog(['Starting host discovery...']);
+    setLog([isPlausibleDomainOrUrl(value) && !match ? `Starting scan of ${value}...` : 'Starting host discovery...']);
     state.setScanning(true);
     state.setLoaded(false);
 
@@ -363,7 +374,7 @@ function ScanPage() {
       const scan = await createScan(value, state.auth);
       activeScanId.current = scan.id;
       state.setScan(scan);
-      state.setCidr(scan.cidr);
+      state.setCidr(scan.target_type === 'url' ? scan.original_target ?? scan.cidr : scan.cidr);
 
       let pollInFlight = false;
       let lastKnownStatus = scan.status;
@@ -404,11 +415,25 @@ function ScanPage() {
           }));
           setLog((previous) => {
             if (!total) {
+              if (updatedScan.target_type === 'url') {
+                const target = updatedScan.original_target ?? updatedScan.cidr;
+                return isComplete ? [`Scan completed for ${target}.`] : [`Scanning ${target}...`];
+              }
               return isComplete ? ['Discovery completed: no live hosts found.'] : ['Waiting for host discovery...'];
             }
-            const discoveryLine = `Discovery found ${total} live hosts.`;
+            const isUrlScan = updatedScan.target_type === 'url';
+            const target = updatedScan.original_target ?? updatedScan.cidr;
+            const discoveryLine = isUrlScan
+              ? `Scanning ${target}...`
+              : `Discovery found ${total} live hosts.`;
             const next = previous.includes(discoveryLine) ? previous : [...previous, discoveryLine];
-            return [...next.filter((line) => !line.startsWith('Port scans complete:')), `Port scans complete: ${done}/${total}`];
+            const progressLine = isUrlScan
+              ? isComplete ? `Scan completed for ${target}.` : `Scanning ${target}...`
+              : `Port scans complete: ${done}/${total}`;
+            return [
+              ...next.filter((line) => !line.startsWith('Port scans complete:') && !line.startsWith('Scan completed for ')),
+              progressLine,
+            ];
           });
 
           if (updatedScan.status === 'failed') {
@@ -439,12 +464,12 @@ function ScanPage() {
   return (
     <>
       <h1>New scan</h1>
-      <p className="sub">Enter a network range. RECON finds live hosts and checks their open services.</p>
+      <p className="sub">Enter a network range or a single domain/URL. RECON finds live hosts and checks their open services.</p>
       <div className="row cols-scan">
         <div className="panel">
-          <label className="f" htmlFor="cidr">Network range (CIDR)</label>
-          <input id="cidr" className="mono" type="text" defaultValue={state.cidr} autoComplete="off" spellCheck={false} placeholder="192.168.1.0/24" />
-          <div className="hint">Up to 254 hosts (/24). Private ranges are allowed in lab mode.</div>
+          <label className="f" htmlFor="cidr">Network range or domain/URL</label>
+          <input id="cidr" className="mono" type="text" defaultValue={state.cidr} autoComplete="off" spellCheck={false} placeholder="192.168.1.0/24 or example.com" />
+          <div className="hint">Private ranges or addresses are allowed in lab mode.</div>
           <div style={{ marginTop: 16 }}>
             <span className="f" style={{ display: 'block', fontWeight: 600 }}>Scan depth</span>
             <div className="seg">
@@ -506,8 +531,10 @@ function ScanPage() {
             <i style={{ display: 'block', height: '100%', width: `${state.scan?.status === 'discovering' && !state.scan.hosts.length ? 18 : progress}%`, background: 'var(--accent)', transition: 'width .2s linear' }} />
           </div>
           <div className="stats">
-            <span>{!state.scan ? 'Ready to scan' : state.scan.status === 'failed' ? 'Scan failed' : scanIsComplete ? 'Done' : state.scan.status === 'discovering' && !state.scan.hosts.length ? 'Starting discovery' : state.scan.status === 'discovering' ? 'Scanning hosts' : 'Scanning ports'}</span>
-            <span>{found} hosts found</span>
+            <span>{state.scan?.target_type === 'url' && state.scan.status !== 'failed' && !scanIsComplete
+              ? `Scanning ${state.scan.original_target ?? state.scan.cidr}...`
+              : !state.scan ? 'Ready to scan' : state.scan.status === 'failed' ? 'Scan failed' : scanIsComplete ? 'Done' : state.scan.status === 'discovering' && !state.scan.hosts.length ? 'Starting discovery' : state.scan.status === 'discovering' ? 'Scanning hosts' : 'Scanning ports'}</span>
+            <span>{state.scan?.target_type === 'url' ? 'Single target' : `${found} hosts found`}</span>
           </div>
           <ul className="log" aria-live="polite">
             {log.map((line, index) => (
@@ -523,8 +550,13 @@ function ScanPage() {
 function OverviewPage() {
   const navigate = useNavigate();
   const state = useAppState();
-  const base = state.cidr.split('.').slice(0, 3).join('.');
   const scan = state.scan;
+  const base = scan?.target_type === 'url'
+    ? scan.hosts[0]?.ip.split('.').slice(0, 3).join('.') ?? state.cidr
+    : state.cidr.split('.').slice(0, 3).join('.');
+  const displayTarget = scan?.target_type === 'url'
+    ? scan.original_target ?? scan.cidr
+    : state.cidr;
   const hosts = getDisplayHosts(scan, state.cidr);
   const isRealScan = scan !== null;
   const sevCounts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -588,7 +620,7 @@ function OverviewPage() {
   return (
     <>
       <h1>Network overview</h1>
-      <p className="sub">{state.cidr}{state.scan ? ` · scanned ${new Date(state.scan.created_at).toLocaleString()}` : ''}. Select a square or a host to see its details.</p>
+      <p className="sub">{displayTarget}{state.scan ? ` · scanned ${new Date(state.scan.created_at).toLocaleString()}` : ''}. Select a square or a host to see its details.</p>
       <div className="demo">{isRealScan ? 'Real scan results. Risk analysis is not yet available.' : 'Showing demo data. Nothing here came from a real scan.'}</div>
       <div className="top">
         <div>
@@ -998,7 +1030,7 @@ function HistoryPage() {
     try {
       const scan = await getScan(id);
       state.setScan(scan);
-      state.setCidr(scan.cidr);
+      state.setCidr(scan.target_type === 'url' ? scan.original_target ?? scan.cidr : scan.cidr);
       state.setLoaded(true);
       navigate('/overview');
     } catch (cause) {
@@ -1038,7 +1070,7 @@ function HistoryPage() {
             <thead>
               <tr>
                 <th>Started</th>
-                <th>Range</th>
+                <th>Target</th>
                 <th>Hosts</th>
                 <th>Status</th>
                 <th>Grade</th>
@@ -1061,7 +1093,7 @@ function HistoryPage() {
                   }}
                 >
                   <td>{new Date(scan.created_at).toLocaleString()}</td>
-                  <td className="mono">{scan.cidr}</td>
+                  <td className="mono">{scan.target_type === 'url' ? scan.original_target ?? scan.cidr : scan.cidr}</td>
                   <td>{scan.host_count}</td>
                   <td>{scan.status}</td>
                   <td>{scan.network_grade ? G(scan.network_grade) : <span className="lbl">Not scored</span>}</td>

@@ -30,6 +30,8 @@ export interface Host {
 export interface Scan {
   id: string;
   cidr: string;
+  target_type: 'cidr' | 'url';
+  original_target: string | null;
   status: ScanStatus;
   created_at: string;
   hosts: Host[];
@@ -41,6 +43,8 @@ export interface Scan {
 export interface ScanSummary {
   id: string;
   cidr: string;
+  target_type: 'cidr' | 'url';
+  original_target: string | null;
   status: ScanStatus;
   created_at: string;
   network_score: number | null;
