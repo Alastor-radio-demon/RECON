@@ -11,6 +11,14 @@ from app import config, main
 from app.models import Host, Scan
 
 
+@pytest.fixture(autouse=True)
+def disable_advisor_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def no_recommendations(_: Host) -> str:
+        return ''
+
+    monkeypatch.setattr(main, 'get_recommendations', no_recommendations)
+
+
 def test_list_scans_returns_summaries_newest_first(monkeypatch: pytest.MonkeyPatch) -> None:
     created_at_values = iter([
         datetime(2026, 9, 29, 10, 0, tzinfo=timezone.utc),

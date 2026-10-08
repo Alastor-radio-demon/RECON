@@ -17,8 +17,6 @@ const AppStateContext = React.createContext<{
   setLoaded: (value: boolean) => void;
   cidr: string;
   setCidr: (value: string) => void;
-  preset: 'quick' | 'full';
-  setPreset: (value: 'quick' | 'full') => void;
   auth: boolean;
   setAuth: (value: boolean) => void;
   host: string | null;
@@ -42,7 +40,6 @@ const AppStateContext = React.createContext<{
 function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = React.useState(false);
   const [cidr, setCidr] = React.useState('192.168.1.0/24');
-  const [preset, setPreset] = React.useState<'quick' | 'full'>('quick');
   const [auth, setAuth] = React.useState(true);
   const [host, setHost] = React.useState<string | null>(null);
   const [scan, setScan] = React.useState<Scan | null>(null);
@@ -54,8 +51,8 @@ function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [timer, setTimer] = React.useState<number | null>(null);
 
   const value = React.useMemo(
-    () => ({ loaded, setLoaded, cidr, setCidr, preset, setPreset, auth, setAuth, host, setHost, scan, setScan, sortKey, setSortKey, sortDir, setSortDir, filter, setFilter, gradeFilter, setGradeFilter, scanning, setScanning, timer, setTimer }),
-    [loaded, cidr, preset, auth, host, scan, sortKey, sortDir, filter, gradeFilter, scanning, timer],
+    () => ({ loaded, setLoaded, cidr, setCidr, auth, setAuth, host, setHost, scan, setScan, sortKey, setSortKey, sortDir, setSortDir, filter, setFilter, gradeFilter, setGradeFilter, scanning, setScanning, timer, setTimer }),
+    [loaded, cidr, auth, host, scan, sortKey, sortDir, filter, gradeFilter, scanning, timer],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -470,21 +467,6 @@ function ScanPage() {
           <label className="f" htmlFor="cidr">Network range or domain/URL</label>
           <input id="cidr" className="mono" type="text" defaultValue={state.cidr} autoComplete="off" spellCheck={false} placeholder="192.168.1.0/24 or example.com" />
           <div className="hint">Private ranges or addresses are allowed in lab mode.</div>
-          <div style={{ marginTop: 16 }}>
-            <span className="f" style={{ display: 'block', fontWeight: 600 }}>Scan depth</span>
-            <div className="seg">
-              <label>
-                <input type="radio" name="preset" value="quick" checked={state.preset === 'quick'} onChange={() => state.setPreset('quick')} />
-                Quick
-                <small>Top 100 ports, about 6 min</small>
-              </label>
-              <label>
-                <input type="radio" name="preset" value="full" checked={state.preset === 'full'} onChange={() => state.setPreset('full')} />
-                Full
-                <small>Top 1000 ports, about 25 min</small>
-              </label>
-            </div>
-          </div>
           <label className="chk">
             <input type="checkbox" checked={state.auth} onChange={(e) => state.setAuth(e.target.checked)} />
             <span>I own this network or have written permission to scan it.</span>

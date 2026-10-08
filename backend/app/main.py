@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.models import CVE, Host, Port, Scan, ScanCreateRequest, ScanSummary, VulnScriptFinding, WebFinding
 from app.reporting.pdf_report import build_report
+from app.scanner.advisor import get_recommendations
 from app.scanner.discovery import run_discovery
 from app.scanner.enrich import lookup_cves
 from app.scanner.portscan import run_portscan
@@ -82,6 +83,8 @@ async def scan_host(host: Host, depth: str = 'full') -> None:
                         host.web_findings.extend(WebFinding(**finding) for finding in nuclei_result)
                     except Exception:
                         logger.exception('Nuclei web scan returned invalid findings for %s', target_url)
+
+                host.ai_recommendations = await get_recommendations(host)
         finally:
             host.status = 'done'
 

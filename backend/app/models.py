@@ -43,6 +43,7 @@ class WebFinding(BaseModel):
 class Host(BaseModel):
     ip: str
     hostname: str | None = None
+    os: str | None = None
     status: Literal['pending', 'scanning', 'done'] = 'pending'
     ports: list[Port] = Field(default_factory=list)
     vuln_findings: list[VulnScriptFinding] = Field(default_factory=list)
@@ -50,6 +51,7 @@ class Host(BaseModel):
     score: int | None = None
     grade: str | None = None
     risk_reasons: list[str] = Field(default_factory=list)
+    ai_recommendations: str = ''
 
 
 class Scan(BaseModel):
