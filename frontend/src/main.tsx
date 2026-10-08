@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, usePa
 import './styles/recon.css';
 import { HOSTS, grade, GC, SEV, SEVC, type Finding, type Severity } from './data/demo';
 import { createScan, getScan, getScanReportUrl, listScans, type CVE, type Scan, type ScanSummary } from './lib/api';
+import { gobusterFindings } from './DevNine/gobusterFindings';
+import { manualFindings } from './DevNine/manualFindings';
 
 const NAV = [
   ['scan', 'Scan'],
@@ -114,6 +116,20 @@ function getHostSeverityCount(host: DisplayHost, severity: Severity): number {
     return host.cves.filter((finding) => finding.cve.severity.toLowerCase() === severity).length;
   }
   return host.vulns?.filter((finding) => finding.sev === severity).length ?? 0;
+}
+
+function isDevNineTarget(scan: Scan): boolean {
+  const target = scan.target_type === 'url' ? scan.original_target ?? scan.cidr : scan.cidr;
+  if (scan.target_type === 'cidr') {
+    return target.trim() === '10.114.165.174' || target.trim() === '10.114.165.174/32';
+  }
+
+  try {
+    const url = new URL(target.includes('://') ? target : `http://${target}`);
+    return url.hostname === '10.114.165.174';
+  } catch {
+    return false;
+  }
 }
 
 function formatAiRecommendations(text: string): React.ReactNode[] {
@@ -837,6 +853,9 @@ function HostDetailPage() {
   const triggerRowRef = React.useRef<HTMLTableRowElement | null>(null);
   const hostId = n ?? state.host;
   const host = getDisplayHosts(state.scan, state.cidr).find((item) => item.key === hostId || item.ip === hostId);
+  const showDevNineContext = state.scan !== null
+    && host?.ip === '10.114.165.174'
+    && isDevNineTarget(state.scan);
 
   React.useEffect(() => {
     if (!selectedCve) return;
@@ -1000,6 +1019,47 @@ function HostDetailPage() {
           </p>
         )}
       </div>
+      {showDevNineContext && (
+        <>
+          <div className="panel" style={{ marginTop: 16 }}>
+            <h2>Manual findings</h2>
+            <p className="lbl">From manual testing / public writeup, not automated scanner output.</p>
+            <ul className="recs">
+              {manualFindings.map((finding) => (
+                <li key={finding.title}>
+                  <span className={`sev s-${finding.severity}`}>{finding.severity}</span>
+                  <strong> {finding.title}</strong>
+                  <div>{finding.detail}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="panel" style={{ marginTop: 16 }}>
+            <h2>Directory enumeration (gobuster)</h2>
+            <p className="lbl">Run separately with gobuster against this target.</p>
+            <div className="tw">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gobusterFindings.map((finding) => (
+                    <tr key={finding.path}>
+                      <td className="mono">{finding.path}</td>
+                      <td>{finding.status}</td>
+                      <td>{finding.note}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
       {selectedCve && (
         <div
           className="cve-modal-backdrop"
