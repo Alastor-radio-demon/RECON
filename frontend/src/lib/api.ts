@@ -25,6 +25,7 @@ export interface Host {
   score: number | null;
   grade: string | null;
   risk_reasons: string[];
+  ai_recommendations: string;
 }
 
 export interface Scan {

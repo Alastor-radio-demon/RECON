@@ -89,6 +89,7 @@ interface DisplayHost {
   score: number | null;
   grade: string | null;
   riskReasons: string[] | null;
+  aiRecommendations: string;
   ports: DisplayPort[];
   vulns: Finding[] | null;
   cves: HostCVE[] | null;
@@ -115,6 +116,42 @@ function getHostSeverityCount(host: DisplayHost, severity: Severity): number {
   return host.vulns?.filter((finding) => finding.sev === severity).length ?? 0;
 }
 
+function formatAiRecommendations(text: string): React.ReactNode[] {
+  const formatted: React.ReactNode[] = [];
+  let numberedItems: string[] = [];
+  let blockIndex = 0;
+
+  const formatInline = (line: string, key: string) => line.split(/(\*\*.+?\*\*)/g).map((part, index) => {
+    const bold = part.match(/^\*\*(.+)\*\*$/);
+    return bold ? <strong key={`${key}-${index}`}>{bold[1]}</strong> : part;
+  });
+  const flushNumberedItems = () => {
+    if (!numberedItems.length) return;
+    formatted.push(
+      <ol className="recs" key={`list-${blockIndex}`}>
+        {numberedItems.map((item, index) => <li key={`item-${index}`}>{formatInline(item, `list-${blockIndex}-item-${index}`)}</li>)}
+      </ol>,
+    );
+    numberedItems = [];
+    blockIndex += 1;
+  };
+
+  text.split(/\r?\n/).forEach((line) => {
+    const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      numberedItems.push(numbered[1]);
+      return;
+    }
+
+    flushNumberedItems();
+    if (line.trim()) {
+      formatted.push(<p key={`line-${blockIndex++}`}>{formatInline(line.trim(), `line-${blockIndex}`)}</p>);
+    }
+  });
+  flushNumberedItems();
+  return formatted;
+}
+
 function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
   if (scan) {
     return scan.hosts.map((host) => ({
@@ -126,6 +163,7 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
       score: host.score,
       grade: host.grade,
       riskReasons: host.risk_reasons,
+      aiRecommendations: host.ai_recommendations ?? '',
       ports: host.ports,
       vulns: null,
       cves: host.ports.flatMap((port) => port.cves.map((cve) => ({ cve, port: port.port, service: port.service }))),
@@ -142,6 +180,7 @@ function getDisplayHosts(scan: Scan | null, cidr: string): DisplayHost[] {
     score: host.score,
     grade: grade(host.score),
     riskReasons: null,
+    aiRecommendations: '',
     ports: host.ports.map((port) => ({
       port: port.port,
       protocol: port.proto,
@@ -950,6 +989,16 @@ function HostDetailPage() {
             </ul>
           ) : <p className="lbl" style={{ margin: 0 }}>No risk factors found</p>}
         </div>
+      </div>
+      <div className="panel" style={{ marginTop: 16 }}>
+        <h2>AI Recommendations</h2>
+        {host.aiRecommendations.trim() ? (
+          formatAiRecommendations(host.aiRecommendations)
+        ) : (
+          <p className="lbl" style={{ margin: 0 }}>
+            AI recommendations are only generated for full scans and may be unavailable if the local model did not respond.
+          </p>
+        )}
       </div>
       {selectedCve && (
         <div
